@@ -46,6 +46,11 @@ const historyModal = document.getElementById("history-modal");
 const historyList = document.getElementById("history-list");
 const historyBtn = document.getElementById("payment-history");
 const closeHistoryBtn = document.getElementById("close-history");
+const lockAppBtn = document.getElementById("lock-app");
+
+const redirectToLogin = () => {
+  window.location.replace("/login");
+};
 
 const SHISHA_HEADS = [
   { id: "quasar", label: "Tete Quasar", price: 20 },
@@ -56,6 +61,10 @@ const SHISHA_HEADS = [
 
 const api = async (url, options = {}) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("Authentification requise");
+  }
   if (!res.ok) throw new Error(`Erreur ${res.status}`);
   return res.json();
 };
@@ -1182,6 +1191,16 @@ const toggleKitchenPrint = () => {
   alert(state.printKitchen ? "Impression cuisine activee sur cet appareil" : "Impression cuisine desactivee");
 };
 
+const lockApp = async () => {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (err) {
+    console.error(err);
+  } finally {
+    redirectToLogin();
+  }
+};
+
 const registerEvents = () => {
   document.getElementById("back-to-tables").addEventListener("click", () => {
     orderPanel.classList.add("hidden");
@@ -1198,6 +1217,7 @@ const registerEvents = () => {
   document.getElementById("close-daily").addEventListener("click", hideDaily);
   document.getElementById("print-daily").addEventListener("click", printDailyTicket);
   document.getElementById("kitchen-print-toggle").addEventListener("click", toggleKitchenPrint);
+  if (lockAppBtn) lockAppBtn.addEventListener("click", lockApp);
   if (historyBtn) historyBtn.addEventListener("click", openHistoryModal);
   if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", hideHistoryModal);
   if (confirmPaymentBtn) confirmPaymentBtn.addEventListener("click", confirmPayment);

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Acces securise | The Moon Brussels</title>
+  <style>
+    :root {
+      --bg: #09111d;
+      --panel: rgba(15, 23, 38, 0.92);
+      --panel-border: rgba(122, 145, 185, 0.18);
+      --text: #f6f8fb;
+      --muted: #92a6c8;
+      --accent: #f2b43b;
+      --danger: #ff6b6b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(31, 138, 238, 0.18), transparent 36%),
+        radial-gradient(circle at bottom, rgba(242, 180, 59, 0.16), transparent 34%),
+        linear-gradient(160deg, #060b14 0%, #0d1729 48%, #08101d 100%);
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .login-shell {
+      width: min(460px, 100%);
+      border-radius: 24px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(16px);
+      padding: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px 0;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.05;
+    }
+
+    .subtitle {
+      margin: 12px 0 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    form {
+      margin-top: 24px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid rgba(146, 166, 200, 0.24);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border-radius: 16px;
+      padding: 16px 18px;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-align: center;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: rgba(31, 138, 238, 0.9);
+      box-shadow: 0 0 0 4px rgba(31, 138, 238, 0.15);
+    }
+
+    button {
+      width: 100%;
+      margin-top: 16px;
+      border: none;
+      border-radius: 16px;
+      padding: 16px 18px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      color: #0b1120;
+      background: linear-gradient(135deg, var(--accent), #f6d06f);
+      box-shadow: 0 16px 40px rgba(242, 180, 59, 0.28);
+    }
+
+    .hint {
+      margin: 14px 0 0 0;
+      min-height: 20px;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .hint.error {
+      color: var(--danger);
+    }
+
+    .pin-note {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(146, 166, 200, 0.14);
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <section class="login-shell">
+    <p class="eyebrow">Acces securise</p>
+    <h1>The Moon Brussels</h1>
+    <p class="subtitle">Entrez le code PIN pour ouvrir l'application de caisse.</p>
+
+    <form id="login-form">
+      <label for="pin">Code PIN</label>
+      <input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required autofocus>
+      <button type="submit">Entrer</button>
+      <p id="login-hint" class="hint"></p>
+    </form>
+
+    <div class="pin-note">Acces bloque sans authentification.</div>
+  </section>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const pinInput = document.getElementById("pin");
+    const hint = document.getElementById("login-hint");
+
+    const setHint = (message, isError) => {
+      hint.textContent = message || "";
+      hint.className = isError ? "hint error" : "hint";
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setHint("Verification...", false);
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin: pinInput.value })
+        });
+
+        if (!res.ok) {
+          setHint("Code PIN incorrect.", true);
+          pinInput.select();
+          return;
+        }
+
+        window.location.replace("/");
+      } catch (error) {
+        setHint("Impossible de contacter le serveur.", true);
+      }
+    });
+  </script>
+</body>
+</html>

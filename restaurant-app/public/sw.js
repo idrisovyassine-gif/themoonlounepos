@@ -1,7 +1,5 @@
-﻿const CACHE_NAME = "pos-cache-v11";
+const CACHE_NAME = "pos-cache-v12";
 const ASSETS = [
-  "/",
-  "/index.html",
   "/styles.css",
   "/app.js",
   "/manifest.webmanifest",
@@ -28,6 +26,13 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  const requestUrl = new URL(event.request.url);
+  if (event.request.mode === "navigate" || requestUrl.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -35,7 +40,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-
-
-
-

@@ -1,16 +1,20 @@
+const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const APP_PIN = String(process.env.APP_PIN || "121030121030").trim();
+const AUTH_COOKIE_NAME = "moonlounge_auth";
+const authSessions = new Map();
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
 
 const RESTAURANT_NAME = "The Moon Brussels";
 const COMPANY_VAT_NUMBER = (process.env.COMPANY_VAT_NUMBER || "BE 0773 802 850").trim();
+const PUBLIC_DIR = path.join(__dirname, "public");
 
 // Menu complet (ASCII pour compatibilite)
 const menu = [
@@ -332,6 +336,107 @@ const createOrder = (tableId) => {
 
 const findTable = (tableId) => tables.find((t) => t.id === tableId);
 
+const parseCookies = (cookieHeader = "") =>
+  cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, part) => {
+      const [rawName, ...rawValue] = part.split("=");
+      if (!rawName) return acc;
+      acc[rawName] = decodeURIComponent(rawValue.join("=") || "");
+      return acc;
+    }, {});
+
+const createAuthSession = () => {
+  const token = crypto.randomBytes(32).toString("hex");
+  authSessions.set(token, { createdAt: Date.now() });
+  return token;
+};
+
+const getAuthToken = (req) => {
+  const cookies = parseCookies(req.headers.cookie || "");
+  return cookies[AUTH_COOKIE_NAME] || "";
+};
+
+const isAuthenticated = (req) => authSessions.has(getAuthToken(req));
+
+const setAuthCookie = (res, token) => {
+  const parts = [
+    `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax"
+  ];
+  if (process.env.NODE_ENV === "production") {
+    parts.push("Secure");
+  }
+  res.setHeader("Set-Cookie", parts.join("; "));
+};
+
+const clearAuthCookie = (res) => {
+  const parts = [
+    `${AUTH_COOKIE_NAME}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0"
+  ];
+  if (process.env.NODE_ENV === "production") {
+    parts.push("Secure");
+  }
+  res.setHeader("Set-Cookie", parts.join("; "));
+};
+
+app.get("/login", (req, res) => {
+  if (isAuthenticated(req)) {
+    return res.redirect("/");
+  }
+  return res.sendFile(path.join(PUBLIC_DIR, "login.html"));
+});
+
+app.get("/api/auth/status", (req, res) => {
+  res.json({ authenticated: isAuthenticated(req) });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  const pin = String(req.body?.pin || "").trim();
+  if (!pin || pin !== APP_PIN) {
+    return res.status(401).json({ error: "Code PIN invalide" });
+  }
+  const token = createAuthSession();
+  setAuthCookie(res, token);
+  return res.json({ authenticated: true });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = getAuthToken(req);
+  if (token) {
+    authSessions.delete(token);
+  }
+  clearAuthCookie(res);
+  return res.json({ authenticated: false });
+});
+
+app.use((req, res, next) => {
+  if (req.path === "/health") return next();
+  if (req.path === "/login") return next();
+  if (req.path === "/api/auth/status") return next();
+  if (req.path === "/api/auth/login") return next();
+  if (req.path === "/api/auth/logout") return next();
+
+  if (!isAuthenticated(req)) {
+    if (req.path.startsWith("/api/")) {
+      return res.status(401).json({ error: "Authentification requise" });
+    }
+    return res.redirect("/login");
+  }
+
+  next();
+});
+
+app.use(express.static(PUBLIC_DIR));
+
 app.get("/api/menu", (_req, res) => {
   res.json(menu);
 });
@@ -554,7 +659,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("*", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
 app.listen(PORT, () => {
