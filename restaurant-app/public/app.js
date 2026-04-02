@@ -1,0 +1,1255 @@
+﻿const state = {
+  tables: [],
+  menu: [],
+  activeCategory: null,
+  currentTable: null,
+  currentOrder: null,
+  saving: false,
+  daily: null,
+  printKitchen: false,
+  paymentMethod: "card"
+};
+
+let lastTicket = null;
+const RESTAURANT_NAME = "The Moon Brussels";
+
+const tableGrid = document.getElementById("table-grid");
+const categoryList = document.getElementById("category-list");
+const itemList = document.getElementById("item-list");
+const orderItemsEl = document.getElementById("order-items");
+const orderTotalEl = document.getElementById("order-total");
+const tablesPanel = document.getElementById("tables-panel");
+const orderPanel = document.getElementById("order-panel");
+const tableTitle = document.getElementById("table-title");
+const tableStatusLabel = document.getElementById("table-status-label");
+const kitchenStatus = document.getElementById("kitchen-status");
+const ticketModal = document.getElementById("ticket-modal");
+const ticketRestaurant = document.getElementById("ticket-restaurant");
+const ticketMeta = document.getElementById("ticket-meta");
+const ticketVat = document.getElementById("ticket-vat");
+const ticketLines = document.getElementById("ticket-lines");
+const ticketTotal = document.getElementById("ticket-total");
+const dailyModal = document.getElementById("daily-modal");
+const dailyRestaurant = document.getElementById("daily-restaurant");
+const dailyDate = document.getElementById("daily-date");
+const dailyVat = document.getElementById("daily-vat");
+const dailyLines = document.getElementById("daily-lines");
+const dailyTotal = document.getElementById("daily-total");
+const shishaHeadSelect = document.getElementById("shisha-head");
+const paymentModal = document.getElementById("payment-modal");
+const confirmPaymentBtn = document.getElementById("confirm-payment");
+const cancelPaymentBtn = document.getElementById("cancel-payment");
+const paymentCashInput = document.getElementById("payment-cash");
+const paymentCardInput = document.getElementById("payment-card");
+const paymentTotalHint = document.getElementById("payment-total-hint");
+const historyModal = document.getElementById("history-modal");
+const historyList = document.getElementById("history-list");
+const historyBtn = document.getElementById("payment-history");
+const closeHistoryBtn = document.getElementById("close-history");
+
+const SHISHA_HEADS = [
+  { id: "quasar", label: "Tete Quasar", price: 20 },
+  { id: "kaloud", label: "Tete Kaloud", price: 15 },
+  { id: "brohood", label: "Tete Brohood", price: 15 },
+  { id: "hookah", label: "Tete Hookah", price: 20 }
+];
+
+const api = async (url, options = {}) => {
+  const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+  if (!res.ok) throw new Error(`Erreur ${res.status}`);
+  return res.json();
+};
+
+const euros = (value) => `${value.toFixed(2)} EUR`;
+const formatTicketNumber = (value) => {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num < 1) return "N/A";
+  return String(num).padStart(4, "0");
+};
+const paymentMethodLabel = (method) => {
+  if (method === "split") return "Mixte";
+  if (method === "cash") return "Cash";
+  return "Carte";
+};
+const hasVatNumber = (value) => typeof value === "string" && value.trim().length > 0;
+const normalizeMoney = (value) => {
+  const num = Number(String(value || "0").replace(",", "."));
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.round(num * 100) / 100);
+};
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const computeItemsTotal = (items = []) =>
+  items.reduce((sum, item) => sum + normalizeMoney(item.price) * Math.max(0, Number(item.qty) || 0), 0);
+
+const HISTORY_CUSTOM_CATEGORY = "__custom__";
+const normalizeLabel = (value) => String(value || "").trim().toLowerCase();
+
+const findHistoryMenuMatch = (item = {}) => {
+  if (!Array.isArray(state.menu)) return null;
+
+  for (const category of state.menu) {
+    for (const menuItem of category.items || []) {
+      if (item?.id && menuItem.id === item.id) {
+        return { categoryId: category.id, menuItemId: menuItem.id, menuItem };
+      }
+    }
+  }
+
+  const targetName = normalizeLabel(item?.name);
+  const targetPrice = normalizeMoney(item?.price);
+  for (const category of state.menu) {
+    for (const menuItem of category.items || []) {
+      if (
+        targetName &&
+        normalizeLabel(menuItem.name) === targetName &&
+        Math.abs(normalizeMoney(menuItem.price) - targetPrice) < 0.01
+      ) {
+        return { categoryId: category.id, menuItemId: menuItem.id, menuItem };
+      }
+    }
+  }
+
+  return null;
+};
+
+const getHistoryMenuItems = (categoryId) =>
+  state.menu.find((category) => category.id === categoryId)?.items || [];
+
+const getHistoryMenuItemById = (categoryId, itemId) =>
+  getHistoryMenuItems(categoryId).find((item) => item.id === itemId) || null;
+
+const getHistoryCategoryOptionsMarkup = (selectedCategoryId = "") => {
+  const selected = selectedCategoryId || "";
+  const options = ['<option value="">Choisir categorie</option>'];
+  state.menu.forEach((category) => {
+    const isSelected = selected === category.id ? " selected" : "";
+    options.push(`<option value="${escapeHtml(category.id)}"${isSelected}>${escapeHtml(category.label)}</option>`);
+  });
+  const customSelected = selected === HISTORY_CUSTOM_CATEGORY ? " selected" : "";
+  options.push(`<option value="${HISTORY_CUSTOM_CATEGORY}"${customSelected}>Personnalise</option>`);
+  return options.join("");
+};
+
+const getHistoryArticleOptionsMarkup = (categoryId, selectedItemId = "") => {
+  const options = ['<option value="">Choisir article</option>'];
+  getHistoryMenuItems(categoryId).forEach((item) => {
+    const isSelected = selectedItemId === item.id ? " selected" : "";
+    options.push(`<option value="${escapeHtml(item.id)}"${isSelected}>${escapeHtml(item.name)}</option>`);
+  });
+  return options.join("");
+};
+
+const paymentStatusLabel = (status) => {
+  if (status === "edited") return "Modifie";
+  if (status === "deleted") return "Supprime";
+  return "Actif";
+};
+
+const getSelectedShishaHead = () => {
+  if (!shishaHeadSelect) return null;
+  const id = shishaHeadSelect.value;
+  if (!id) return null;
+  return SHISHA_HEADS.find((head) => head.id === id) || null;
+};
+
+const statusLabel = (status) => {
+  if (status === "occupied") return "Occupee";
+  if (status === "to_pay") return "A payer";
+  return "Libre";
+};
+
+const renderTables = () => {
+  tableGrid.innerHTML = "";
+  state.tables.forEach((table) => {
+    const btn = document.createElement("button");
+    btn.className = `table-card ${table.status}`;
+    btn.setAttribute("aria-label", `Table ${table.id} ${table.status}`);
+    btn.innerHTML = `
+      <div class="table-number">Table ${table.id}</div>
+      <div class="badge ${table.status}">${statusLabel(table.status)}</div>
+    `;
+    btn.addEventListener("click", () => openTable(table.id));
+    tableGrid.appendChild(btn);
+  });
+};
+
+const renderCategories = () => {
+  categoryList.innerHTML = "";
+  state.menu.forEach((cat) => {
+    const btn = document.createElement("button");
+    btn.className = `chip ${state.activeCategory === cat.id ? "active" : ""}`;
+    btn.textContent = cat.label;
+    btn.addEventListener("click", () => {
+      state.activeCategory = cat.id;
+      renderCategories();
+      renderItems();
+    });
+    categoryList.appendChild(btn);
+  });
+};
+
+const renderItems = () => {
+  itemList.innerHTML = "";
+  const category = state.menu.find((c) => c.id === state.activeCategory) || state.menu[0];
+  if (!category) return;
+  category.items.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "item-card";
+    const qty = item.isShisha
+      ? (state.currentOrder?.items || [])
+          .filter((i) => i.shishaFlavorId === item.id)
+          .reduce((sum, i) => sum + i.qty, 0)
+      : state.currentOrder?.items.find((i) => i.id === item.id)?.qty || 0;
+    const selectedHead = getSelectedShishaHead();
+    const priceLabel = item.isShisha
+      ? selectedHead
+        ? euros(selectedHead.price)
+        : "Choisir tete"
+      : euros(item.price);
+    card.innerHTML = `
+      <div>
+        <h4>${item.name}</h4>
+        <div class="price">${priceLabel}</div>
+      </div>
+      <div class="item-actions">
+        <div class="quantity">
+          <button aria-label="Diminuer" data-delta="-1">-</button>
+          <div style="display:flex;align-items:center;justify-content:center;font-weight:700;">${qty}</div>
+          <button aria-label="Augmenter" data-delta="1">+</button>
+        </div>
+      </div>
+    `;
+    if (item.isShisha && !selectedHead) {
+      card.classList.add("needs-head");
+      card.querySelectorAll("button[data-delta]").forEach((btn) => {
+        btn.disabled = btn.dataset.delta === "1";
+        if (btn.dataset.delta === "1") {
+          btn.setAttribute("title", "Choisir tete shisha");
+        }
+      });
+    }
+    card.querySelectorAll("button[data-delta]").forEach((btn) =>
+      btn.addEventListener("click", () => updateItemQuantity(item, Number(btn.dataset.delta)))
+    );
+    itemList.appendChild(card);
+  });
+};
+
+const renderOrder = () => {
+  orderItemsEl.innerHTML = "";
+  const items = state.currentOrder?.items || [];
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "order-line";
+    li.innerHTML = `
+      <h4>${item.name}</h4>
+      <span class="price">x${item.qty}</span>
+      <strong>${euros(item.price * item.qty)}</strong>
+      <button class="line-remove" type="button">Retirer</button>
+    `;
+    li.addEventListener("click", () => updateItemQuantity(item, -1));
+    li.querySelector(".line-remove").addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeOrderLine(item);
+    });
+    orderItemsEl.appendChild(li);
+  });
+  const total = items.reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  orderTotalEl.textContent = euros(total);
+};
+
+const updatePaymentTotalHint = () => {
+  if (!paymentTotalHint || !state.currentOrder) return;
+  const total = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  const cash = normalizeMoney(paymentCashInput ? paymentCashInput.value : 0);
+  const card = normalizeMoney(paymentCardInput ? paymentCardInput.value : 0);
+  const entered = Math.round((cash + card) * 100) / 100;
+  const diff = Math.round((total - entered) * 100) / 100;
+  if (Math.abs(diff) < 0.01) {
+    paymentTotalHint.textContent = `Total OK: ${euros(total)}`;
+    return;
+  }
+  if (diff > 0) {
+    paymentTotalHint.textContent = `Il manque ${euros(diff)} (total ${euros(total)})`;
+    return;
+  }
+  paymentTotalHint.textContent = `Rendu client: ${euros(Math.abs(diff))} (total ${euros(total)})`;
+};
+
+const computePaymentMethod = (totalCash, totalCard) => {
+  if (totalCash > 0 && totalCard > 0) return "split";
+  if (totalCash > 0) return "cash";
+  return "card";
+};
+
+const removeOrderLine = (item) => {
+  if (!state.currentOrder) return;
+  const items = [...state.currentOrder.items];
+  const targetIndex = items.findIndex((i) => i.id === item.id);
+  if (targetIndex >= 0) {
+    items.splice(targetIndex, 1);
+  }
+  state.currentOrder.items = items;
+  renderItems();
+  renderOrder();
+  persistOrder();
+};
+
+const updateItemQuantity = (item, delta) => {
+  if (!state.currentOrder) return;
+  const items = [...state.currentOrder.items];
+  if (item.isShisha) {
+    const head = getSelectedShishaHead();
+    if (delta > 0) {
+      if (!head) {
+        alert("Choisir tete shisha avant d'ajouter un gout");
+        return;
+      }
+      const shishaId = `shisha-${item.id}-${head.id}`;
+      const existing = items.find((i) => i.id === shishaId);
+      if (!existing) {
+        items.push({
+          id: shishaId,
+          name: `Shisha ${item.name} - ${head.label}`,
+          price: head.price,
+          qty: 1,
+          isShisha: true,
+          shishaFlavorId: item.id
+        });
+      } else {
+        existing.qty = Math.max(0, existing.qty + delta);
+      }
+    } else if (delta < 0) {
+      const targetId =
+        item.id && item.id.startsWith("shisha-")
+          ? item.id
+          : head
+            ? `shisha-${item.id}-${head.id}`
+            : null;
+      let existing = targetId ? items.find((i) => i.id === targetId) : null;
+      if (!existing) {
+        existing = items.find((i) => i.shishaFlavorId === item.id);
+      }
+      if (existing) {
+        existing.qty = Math.max(0, existing.qty + delta);
+      }
+    }
+  } else {
+    const existing = items.find((i) => i.id === item.id);
+    if (!existing && delta > 0) {
+      items.push({ ...item, qty: 1 });
+    } else if (existing) {
+      existing.qty = Math.max(0, existing.qty + delta);
+    }
+  }
+  const filtered = items.filter((i) => i.qty > 0);
+  state.currentOrder.items = filtered;
+  renderItems();
+  renderOrder();
+  persistOrder();
+};
+
+let saveTimeout;
+const persistOrder = () => {
+  if (!state.currentOrder) return;
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    state.saving = true;
+    try {
+      const updated = await api(`/api/orders/${state.currentOrder.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ items: state.currentOrder.items })
+      });
+      state.currentOrder = updated;
+      localStorage.setItem(`order-${state.currentTable.id}`, JSON.stringify(updated.items));
+    } catch (err) {
+      console.error(err);
+      alert("Echec de sauvegarde");
+    } finally {
+      state.saving = false;
+    }
+  }, 250);
+};
+
+const renderKitchenStatus = () => {
+  if (!state.currentOrder?.sentToKitchen) {
+    kitchenStatus.classList.add("hidden");
+    kitchenStatus.textContent = "";
+    return;
+  }
+  kitchenStatus.classList.remove("hidden");
+  kitchenStatus.textContent = "Envoye en cuisine";
+};
+
+const openPrintWindow = (html, options = {}) => {
+  const { preferPopup = false } = options;
+  const printRoot = document.getElementById("print-root");
+  if (!printRoot) {
+    alert("Zone d'impression introuvable");
+    return;
+  }
+
+  if (preferPopup) {
+    const popup = window.open("", "_blank", "width=420,height=800");
+    if (popup) {
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+
+      const closePopup = () => {
+        try {
+          popup.close();
+        } catch (err) {
+          console.error("Impossible de fermer la fenetre d'impression", err);
+        }
+      };
+
+      const launchPopupPrint = () => {
+        try {
+          popup.focus();
+          popup.print();
+          setTimeout(closePopup, 1500);
+        } catch (err) {
+          console.error("Impossible de lancer l'impression popup", err);
+          closePopup();
+        }
+      };
+
+      popup.addEventListener("afterprint", closePopup, { once: true });
+      if (popup.document.readyState === "complete") {
+        setTimeout(launchPopupPrint, 50);
+      } else {
+        popup.addEventListener("load", () => setTimeout(launchPopupPrint, 50), { once: true });
+      }
+      return;
+    }
+  }
+
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
+
+  const cleanup = () => {
+    printRoot.innerHTML = "";
+    document.removeEventListener("afterprint", cleanup);
+  };
+
+  document.addEventListener("afterprint", cleanup);
+  // Force a layout pass before printing so browsers pick up the new ticket DOM
+  // while preserving the current user gesture.
+  printRoot.getBoundingClientRect();
+  window.print();
+  setTimeout(cleanup, 1500);
+};
+
+const THERMAL_PAPER_WIDTH_MM = 58;
+const THERMAL_CONTENT_WIDTH_MM = 54;
+
+const buildThermalPrintDocument = (title, body) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      @page {
+        size: ${THERMAL_PAPER_WIDTH_MM}mm auto;
+        margin: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: ${THERMAL_PAPER_WIDTH_MM}mm;
+        font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
+        color: #000;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .ticket-print {
+        width: ${THERMAL_CONTENT_WIDTH_MM}mm;
+        margin: 0 auto;
+        padding: 2mm 0 0.5mm;
+      }
+
+      .ticket-print h2 {
+        margin: 0 0 1.5mm;
+        font-size: 20px;
+        line-height: 1.1;
+        text-align: center;
+        font-weight: 800;
+      }
+
+      .ticket-print .meta {
+        margin: 0 0 1mm;
+        font-size: 12px;
+        line-height: 1.2;
+        text-align: center;
+        font-weight: 700;
+      }
+
+      .ticket-print hr {
+        border: 0;
+        border-top: 1px dashed #000;
+        margin: 1.5mm 0;
+      }
+
+      .ticket-print .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 2mm;
+        margin: 1mm 0;
+        font-size: 14px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+
+      .ticket-print .label {
+        flex: 1;
+        min-width: 0;
+        word-break: break-word;
+      }
+
+      .ticket-print .amount {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        text-align: right;
+      }
+
+      .ticket-print .summary {
+        font-size: 13px;
+      }
+
+      .ticket-print .total {
+        margin-top: 1mm;
+        font-size: 17px;
+        font-weight: 800;
+      }
+
+      .ticket-print .footer {
+        margin-top: 1.25mm;
+        font-size: 12px;
+        line-height: 1.2;
+        text-align: center;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>${body}</body>
+</html>`;
+
+const thermalRow = (label, amount = "", extraClass = "") => {
+  const className = ["row", extraClass].filter(Boolean).join(" ");
+  return `
+    <div class="${className}">
+      <span class="label">${label}</span>
+      ${amount ? `<span class="amount">${amount}</span>` : ""}
+    </div>
+  `;
+};
+
+const printKitchenTicket = (order) => {
+  const tableLabel = state.currentTable ? `Table ${state.currentTable.id}` : "Table";
+  const date = new Date().toLocaleString();
+  const lines = (order.items || [])
+    .map(
+      (line) =>
+        thermalRow(`${line.qty} x ${line.name}`, euros(line.price))
+    )
+    .join("") || '<div class="meta">Aucun article</div>';
+
+  const html = buildThermalPrintDocument(
+    "Ticket Cuisine",
+    `
+      <div class="ticket-print">
+        <h2>Ticket Cuisine</h2>
+        <div class="meta">${tableLabel}</div>
+        <div class="meta">${date}</div>
+        <hr/>
+        ${lines}
+        <hr/>
+        ${thermalRow(`Total lignes: ${order.items?.reduce((a, l) => a + l.qty, 0) || 0}`, "", "summary")}
+      </div>
+    `
+  );
+  openPrintWindow(html);
+};
+
+const sendToKitchen = async () => {
+  if (!state.currentOrder) return;
+  try {
+    const order = await api(`/api/orders/${state.currentOrder.id}/send-kitchen`, { method: "POST" });
+    state.currentOrder = order;
+    renderKitchenStatus();
+    alert("Commande envoyee en cuisine");
+    if (state.printKitchen) {
+      printKitchenTicket(order);
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Impossible d'envoyer en cuisine");
+  }
+};
+
+const printReceiptTicket = () => {
+  if (!lastTicket) {
+    alert("Aucun ticket a imprimer");
+    return;
+  }
+  const date = new Date(lastTicket.date);
+  const methodLabel = paymentMethodLabel(lastTicket.paymentMethod);
+  const totalCash =
+    typeof lastTicket.paidCash === "number"
+      ? lastTicket.paidCash
+      : typeof lastTicket.totalCash === "number"
+        ? lastTicket.totalCash
+        : 0;
+  const totalCard =
+    typeof lastTicket.paidCard === "number"
+      ? lastTicket.paidCard
+      : typeof lastTicket.totalCard === "number"
+        ? lastTicket.totalCard
+        : 0;
+  const lines = (lastTicket.items || [])
+    .map(
+      (line) =>
+        thermalRow(`${line.qty} x ${line.name}`, euros(line.price * line.qty))
+    )
+    .join("") || '<div class="meta">Aucun article</div>';
+  let paymentDetails = "";
+  if (totalCash > 0) {
+    paymentDetails += thermalRow("Cash", euros(totalCash), "summary");
+  }
+  if (totalCard > 0) {
+    paymentDetails += thermalRow("Carte", euros(totalCard), "summary");
+  }
+  if (!paymentDetails) {
+    paymentDetails = thermalRow("Carte", euros(lastTicket.totalTtc || 0), "summary");
+  }
+  if (typeof lastTicket.changeDue === "number" && lastTicket.changeDue > 0) {
+    paymentDetails += thermalRow("Rendu", euros(lastTicket.changeDue), "summary");
+  }
+  const vatLine = hasVatNumber(lastTicket.vatNumber)
+    ? `<div class="meta">TVA: ${lastTicket.vatNumber}</div>`
+    : "";
+
+  const html = buildThermalPrintDocument(
+    "Ticket",
+    `
+      <div class="ticket-print">
+        <h2>${lastTicket.restaurant || "Ticket"}</h2>
+        <div class="meta">Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}</div>
+        <div class="meta">Table ${lastTicket.table}</div>
+        <div class="meta">${date.toLocaleDateString()} ${date.toLocaleTimeString()} | ${methodLabel}</div>
+        ${vatLine}
+        <hr/>
+        ${lines}
+        <hr/>
+        ${paymentDetails}
+        <div class="row total">
+          <span class="label">Total TTC</span>
+          <span class="amount">${euros(lastTicket.totalTtc || 0)}</span>
+        </div>
+        <div class="footer">Chaussée d'Haecht 32, 1210 Bruxelles</div>
+      </div>
+    `
+  );
+  openPrintWindow(html, { preferPopup: true });
+};
+
+const printDailyTicket = () => {
+  if (!state.daily) {
+    alert("Pas de ticket journalier");
+    return;
+  }
+  const lines = `
+    ${thermalRow("Cash", euros(state.daily.totalCash || 0), "summary")}
+    ${thermalRow("Carte", euros(state.daily.totalCard || 0), "summary")}
+  `;
+  const displayDate = state.daily.date;
+  const vatLine = hasVatNumber(state.daily.vatNumber)
+    ? `<div class="meta">TVA: ${state.daily.vatNumber}</div>`
+    : "";
+
+  const html = buildThermalPrintDocument(
+    `${RESTAURANT_NAME} - Ticket journalier`,
+    `
+      <div class="ticket-print">
+        <h2>${RESTAURANT_NAME}</h2>
+        <div class="meta">Ticket journalier</div>
+        <div class="meta">Date : ${displayDate}</div>
+        ${vatLine}
+        <hr/>
+        ${lines}
+        <hr/>
+        <div class="row total">
+          <span class="label">Total journalier</span>
+          <span class="amount">${euros(state.daily.totalTtc || 0)}</span>
+        </div>
+      </div>
+    `
+  );
+  openPrintWindow(html, { preferPopup: true });
+};
+
+const openTable = async (tableId) => {
+  try {
+    const { table, order } = await api(`/api/tables/${tableId}/open`, { method: "POST" });
+    state.currentTable = table;
+    const savedItems = localStorage.getItem(`order-${tableId}`);
+    if (savedItems && (!order.items || order.items.length === 0)) {
+      order.items = JSON.parse(savedItems);
+      await api(`/api/orders/${order.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ items: order.items })
+      });
+    }
+    state.currentOrder = order;
+    tableTitle.textContent = `Table ${table.id}`;
+    tableStatusLabel.textContent = `Statut : ${statusLabel(table.status)}`;
+    tablesPanel.classList.add("hidden");
+    orderPanel.classList.remove("hidden");
+    renderCategories();
+    renderItems();
+    renderOrder();
+    renderKitchenStatus();
+    await refreshTables();
+  } catch (err) {
+    console.error(err);
+    alert("Impossible d'ouvrir la table.");
+  }
+};
+
+const refreshTables = async () => {
+  state.tables = await api("/api/tables");
+  renderTables();
+};
+
+const markToPay = async () => {
+  if (!state.currentOrder) return;
+  await api(`/api/orders/${state.currentOrder.id}/mark-to-pay`, { method: "POST" });
+  tableStatusLabel.textContent = "Statut : A payer";
+  await refreshTables();
+  openPaymentModal();
+};
+
+const confirmPayment = async () => {
+  if (!state.currentOrder) return;
+  try {
+    const orderTotal = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+    const totalCash = normalizeMoney(paymentCashInput ? paymentCashInput.value : 0);
+    const totalCard = normalizeMoney(paymentCardInput ? paymentCardInput.value : 0);
+    const entered = Math.round((totalCash + totalCard) * 100) / 100;
+    if (entered + 0.01 < orderTotal) {
+      alert(`Le total saisi (${euros(entered)}) doit etre au moins egal au total commande (${euros(orderTotal)}).`);
+      return;
+    }
+    const method = computePaymentMethod(totalCash, totalCard);
+    state.paymentMethod = method;
+    const ticket = await api(`/api/orders/${state.currentOrder.id}/settle`, {
+      method: "POST",
+      body: JSON.stringify({
+        paymentMethod: method,
+        paymentAmounts: {
+          cash: totalCash,
+          card: totalCard
+        }
+      })
+    });
+    showTicket(ticket);
+    localStorage.removeItem(`order-${state.currentTable.id}`);
+    state.currentOrder = null;
+    state.currentTable = null;
+    orderPanel.classList.add("hidden");
+    tablesPanel.classList.remove("hidden");
+    await refreshTables();
+    hidePaymentModal();
+  } catch (err) {
+    console.error(err);
+    alert("Impossible d'encaisser");
+    hidePaymentModal();
+  }
+};
+
+const showTicket = (ticket) => {
+  lastTicket = ticket;
+  ticketRestaurant.textContent = ticket.restaurant;
+  const date = new Date(ticket.date);
+  if (ticketVat) {
+    ticketVat.textContent = hasVatNumber(ticket.vatNumber) ? `TVA: ${ticket.vatNumber}` : "";
+  }
+  const methodLabel = paymentMethodLabel(ticket.paymentMethod);
+  ticketMeta.textContent = `Ticket N ${formatTicketNumber(ticket.ticketNumber)}  -  Table ${ticket.table}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}`;
+  ticketLines.innerHTML = "";
+  ticket.items.forEach((line) => {
+    const row = document.createElement("div");
+    row.className = "ticket-row";
+    row.innerHTML = `<span>${line.qty} x ${line.name}</span><strong>${euros(line.price * line.qty)}</strong>`;
+    ticketLines.appendChild(row);
+  });
+  if (typeof ticket.totalCash === "number" || typeof ticket.totalCard === "number") {
+    const totalCash =
+      typeof ticket.paidCash === "number"
+        ? ticket.paidCash
+        : typeof ticket.totalCash === "number"
+          ? ticket.totalCash
+          : 0;
+    const totalCard =
+      typeof ticket.paidCard === "number"
+        ? ticket.paidCard
+        : typeof ticket.totalCard === "number"
+          ? ticket.totalCard
+          : 0;
+    const cashRow = document.createElement("div");
+    cashRow.className = "ticket-row";
+    cashRow.innerHTML = `<span>Cash</span><strong>${euros(totalCash)}</strong>`;
+    ticketLines.appendChild(cashRow);
+    const cardRow = document.createElement("div");
+    cardRow.className = "ticket-row";
+    cardRow.innerHTML = `<span>Carte</span><strong>${euros(totalCard)}</strong>`;
+    ticketLines.appendChild(cardRow);
+    if (typeof ticket.changeDue === "number" && ticket.changeDue > 0) {
+      const changeRow = document.createElement("div");
+      changeRow.className = "ticket-row";
+      changeRow.innerHTML = `<span>Rendu</span><strong>${euros(ticket.changeDue)}</strong>`;
+      ticketLines.appendChild(changeRow);
+    }
+  }
+  ticketTotal.textContent = euros(ticket.totalTtc);
+  const existingAddress = ticketModal.querySelector(".ticket-address");
+  if (existingAddress) {
+    existingAddress.textContent = "Chaussée d'Haecht 32, 1210 Bruxelles";
+  } else {
+    const addr = document.createElement("div");
+    addr.className = "ticket-address";
+    addr.textContent = "Chaussée d'Haecht 32, 1210 Bruxelles";
+    ticketTotal.parentElement.appendChild(addr);
+  }
+  ticketModal.classList.remove("hidden");
+};
+
+const hideTicket = () => ticketModal.classList.add("hidden");
+
+const loadDailyReport = async () => {
+  try {
+    const report = await api("/api/reports/daily");
+    state.daily = report;
+    renderDaily(report);
+  } catch (err) {
+    console.error(err);
+    alert("Impossible de charger le ticket journalier");
+  }
+};
+
+const renderDaily = (report) => {
+  if (!report) return;
+  dailyDate.textContent = `Date : ${report.date}`;
+  if (dailyRestaurant) dailyRestaurant.textContent = RESTAURANT_NAME;
+  if (dailyVat) dailyVat.textContent = hasVatNumber(report.vatNumber) ? `TVA: ${report.vatNumber}` : "";
+  dailyLines.innerHTML = "";
+  const cashRow = document.createElement("div");
+  cashRow.className = "ticket-row";
+  cashRow.innerHTML = `<span>Cash</span><strong>${euros(report.totalCash || 0)}</strong>`;
+  dailyLines.appendChild(cashRow);
+  const cardRow = document.createElement("div");
+  cardRow.className = "ticket-row";
+  cardRow.innerHTML = `<span>Carte</span><strong>${euros(report.totalCard || 0)}</strong>`;
+  dailyLines.appendChild(cardRow);
+  dailyTotal.textContent = euros(report.totalTtc || 0);
+  dailyModal.classList.remove("hidden");
+};
+
+const hideDaily = () => dailyModal.classList.add("hidden");
+
+const openPaymentModal = () => {
+  if (!paymentModal || !state.currentOrder) return;
+  const total = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  if (paymentCashInput) paymentCashInput.value = "0.00";
+  if (paymentCardInput) paymentCardInput.value = total.toFixed(2);
+  updatePaymentTotalHint();
+  paymentModal.classList.remove("hidden");
+};
+
+const hidePaymentModal = () => {
+  if (!paymentModal) return;
+  paymentModal.classList.add("hidden");
+};
+
+const createHistoryLineMarkup = (item = {}) => {
+  const match = findHistoryMenuMatch(item);
+  const categoryId = match ? match.categoryId : "";
+  const menuItemId = match ? match.menuItemId : "";
+  const isCustom = !match && Boolean(item.name);
+  const selectedCategory = isCustom ? HISTORY_CUSTOM_CATEGORY : categoryId;
+  const menuDisabled = !categoryId || isCustom ? " disabled" : "";
+  const customNameHidden = isCustom ? "" : " hidden";
+
+  return `
+    <div class="history-line" data-item-id="${escapeHtml(item.id || "")}">
+      <div class="history-item-picker">
+        <select data-item-field="category">
+          ${getHistoryCategoryOptionsMarkup(selectedCategory)}
+        </select>
+        <select data-item-field="menuItem"${menuDisabled}>
+          ${getHistoryArticleOptionsMarkup(categoryId, menuItemId)}
+        </select>
+        <input
+          type="text"
+          data-item-field="name"
+          placeholder="Article personnalise"
+          value="${escapeHtml(isCustom ? item.name || "" : "")}"
+          ${customNameHidden}
+        />
+      </div>
+      <input type="number" step="1" min="1" data-item-field="qty" value="${Math.max(1, Number(item.qty) || 1)}" />
+      <input type="number" step="0.01" min="0" data-item-field="price" value="${normalizeMoney(item.price).toFixed(2)}" />
+      <button type="button" class="btn-line-remove" data-action="remove-line">Retirer</button>
+    </div>
+  `;
+};
+
+const syncHistoryLinePicker = (line, options = {}) => {
+  const { resetItemSelection = false } = options;
+  const categorySelect = line.querySelector('[data-item-field="category"]');
+  const itemSelect = line.querySelector('[data-item-field="menuItem"]');
+  const nameInput = line.querySelector('[data-item-field="name"]');
+  const priceInput = line.querySelector('[data-item-field="price"]');
+  if (!categorySelect || !itemSelect || !nameInput || !priceInput) return;
+
+  const categoryId = categorySelect.value;
+  const isCustom = categoryId === HISTORY_CUSTOM_CATEGORY;
+
+  if (isCustom) {
+    itemSelect.innerHTML = '<option value="">Article libre</option>';
+    itemSelect.disabled = true;
+    itemSelect.value = "";
+    nameInput.hidden = false;
+    return;
+  }
+
+  nameInput.hidden = true;
+  nameInput.value = "";
+  itemSelect.disabled = !categoryId;
+  itemSelect.innerHTML = getHistoryArticleOptionsMarkup(categoryId, resetItemSelection ? "" : itemSelect.value);
+
+  if (resetItemSelection) {
+    itemSelect.value = "";
+    priceInput.value = "0.00";
+    return;
+  }
+
+  const selectedItem = getHistoryMenuItemById(categoryId, itemSelect.value);
+  if (selectedItem) {
+    priceInput.value = normalizeMoney(selectedItem.price).toFixed(2);
+  }
+};
+
+const readHistoryItems = (wrap) =>
+  [...wrap.querySelectorAll(".history-line")]
+    .map((line, index) => {
+      const categoryId = line.querySelector('[data-item-field="category"]').value;
+      const selectedItemId = line.querySelector('[data-item-field="menuItem"]').value;
+      const customName = line.querySelector('[data-item-field="name"]').value.trim();
+      const qty = Math.max(0, Math.round(Number(line.querySelector('[data-item-field="qty"]').value || 0)));
+      const price = normalizeMoney(line.querySelector('[data-item-field="price"]').value);
+      let id = line.dataset.itemId || `history-line-${Date.now()}-${index}`;
+      let name = customName;
+
+      if (categoryId && categoryId !== HISTORY_CUSTOM_CATEGORY) {
+        const selectedItem = getHistoryMenuItemById(categoryId, selectedItemId);
+        if (!selectedItem) return null;
+        id = selectedItem.id;
+        name = selectedItem.name;
+      }
+
+      if (!name || qty < 1) return null;
+      return { id, name, qty, price };
+    })
+    .filter(Boolean);
+
+const updateHistoryDraftHint = (wrap) => {
+  const hint = wrap.querySelector('[data-role="draft-total"]');
+  if (!hint) return;
+  const items = readHistoryItems(wrap);
+  const total = computeItemsTotal(items);
+  const cash = normalizeMoney(wrap.querySelector('[data-field="cash"]').value);
+  const card = normalizeMoney(wrap.querySelector('[data-field="card"]').value);
+  const paid = Math.round((cash + card) * 100) / 100;
+  const diff = Math.round((paid - total) * 100) / 100;
+  if (!items.length) {
+    hint.textContent = "Commande vide";
+    return;
+  }
+  if (Math.abs(diff) < 0.01) {
+    hint.textContent = `Commande ${euros(total)} | Paiement OK`;
+    return;
+  }
+  if (diff > 0) {
+    hint.textContent = `Commande ${euros(total)} | Rendu ${euros(diff)}`;
+    return;
+  }
+  hint.textContent = `Commande ${euros(total)} | Il manque ${euros(Math.abs(diff))}`;
+};
+
+const renderPaymentHistory = (list) => {
+  if (!historyList) return;
+  historyList.innerHTML = "";
+  if (!list || list.length === 0) {
+    historyList.innerHTML = "<div>Aucun paiement.</div>";
+    return;
+  }
+  list.forEach((entry) => {
+    const wrap = document.createElement("div");
+    wrap.className = "history-item";
+    const date = new Date(entry.date);
+    const includeChecked = entry.includeInDaily ? "checked" : "";
+    const isDeleted = entry.status === "deleted";
+    const includeDisabled = isDeleted ? "disabled" : "";
+    const actionDisabled = isDeleted ? "disabled" : "";
+    const itemsMarkup =
+      (entry.items || []).map((item) => createHistoryLineMarkup(item)).join("") ||
+      createHistoryLineMarkup({ name: "", qty: 1, price: 0 });
+    wrap.innerHTML = `
+      <div class="history-meta">
+        <strong>Ticket ${formatTicketNumber(entry.ticketNumber)}</strong>
+        <span>Table ${entry.table}</span>
+        <span>${date.toLocaleDateString()} ${date.toLocaleTimeString()}</span>
+        <span>Total ${euros(entry.totalTtc || 0)}</span>
+      </div>
+      <div class="history-meta">
+        <span>Cash: ${euros(entry.totalCash || 0)}</span>
+        <span>Carte: ${euros(entry.totalCard || 0)}</span>
+        <span class="history-status">Statut: ${paymentStatusLabel(entry.status)}</span>
+      </div>
+      <label class="history-toggle">
+        <input type="checkbox" data-field="include" ${includeChecked} ${includeDisabled} />
+        Afficher dans le ticket journalier
+      </label>
+      <div class="history-editor">
+        <div class="history-editor-head">
+          <strong>Commande</strong>
+          <button type="button" class="ghost-btn history-add-line" data-action="add-line" ${actionDisabled}>Ajouter ligne</button>
+        </div>
+        <div class="history-editor-labels">
+          <span>Categorie / Article</span>
+          <span>Qté</span>
+          <span>Prix</span>
+          <span></span>
+        </div>
+        <div class="history-lines">${itemsMarkup}</div>
+        <div class="history-draft-total" data-role="draft-total"></div>
+      </div>
+      <div class="history-actions">
+        <input type="number" step="0.01" min="0" value="${(entry.paidCash ?? entry.totalCash ?? 0).toFixed(2)}" data-field="cash" ${actionDisabled}/>
+        <input type="number" step="0.01" min="0" value="${(entry.paidCard ?? entry.totalCard ?? 0).toFixed(2)}" data-field="card" ${actionDisabled}/>
+        <button class="btn-edit" data-action="edit" ${actionDisabled}>Enregistrer</button>
+        <button class="btn-delete" data-action="delete" ${actionDisabled}>Supprimer</button>
+      </div>
+    `;
+    updateHistoryDraftHint(wrap);
+    wrap.querySelector('[data-field="include"]').addEventListener("change", async (event) => {
+      try {
+        await api(`/api/payments/history/${entry.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ includeInDaily: event.target.checked })
+        });
+        await openHistoryModal();
+      } catch (err) {
+        console.error(err);
+        alert("Impossible de modifier l'affichage journalier");
+      }
+    });
+    wrap.addEventListener("input", (event) => {
+      if (event.target.matches('[data-field="cash"], [data-field="card"], [data-item-field]')) {
+        updateHistoryDraftHint(wrap);
+      }
+    });
+    wrap.addEventListener("change", (event) => {
+      const line = event.target.closest(".history-line");
+      if (!line) return;
+      if (event.target.matches('[data-item-field="category"]')) {
+        syncHistoryLinePicker(line, { resetItemSelection: true });
+        updateHistoryDraftHint(wrap);
+        return;
+      }
+      if (event.target.matches('[data-item-field="menuItem"]')) {
+        syncHistoryLinePicker(line);
+        updateHistoryDraftHint(wrap);
+      }
+    });
+    wrap.addEventListener("click", async (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      const { action } = button.dataset;
+      if (!action || isDeleted) return;
+      if (action === "add-line") {
+        wrap.querySelector(".history-lines").insertAdjacentHTML(
+          "beforeend",
+          createHistoryLineMarkup({ name: "", qty: 1, price: 0 })
+        );
+        const newLine = wrap.querySelector(".history-lines .history-line:last-child");
+        if (newLine) syncHistoryLinePicker(newLine, { resetItemSelection: true });
+        updateHistoryDraftHint(wrap);
+        return;
+      }
+      if (action === "remove-line") {
+        const line = button.closest(".history-line");
+        if (line) line.remove();
+        updateHistoryDraftHint(wrap);
+        return;
+      }
+      if (action === "edit") {
+        const cash = wrap.querySelector('[data-field="cash"]').value;
+        const card = wrap.querySelector('[data-field="card"]').value;
+        const items = readHistoryItems(wrap);
+        if (!items.length) {
+          alert("Ajoute au moins une ligne de commande valide");
+          return;
+        }
+        try {
+          await api(`/api/payments/history/${entry.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ cash, card, items })
+          });
+          await openHistoryModal();
+        } catch (err) {
+          console.error(err);
+          alert("Impossible de modifier cette commande payee");
+        }
+        return;
+      }
+      if (action === "delete") {
+        if (!confirm("Supprimer ce paiement de l'historique ?")) return;
+        try {
+          await api(`/api/payments/history/${entry.id}`, { method: "DELETE" });
+          await openHistoryModal();
+        } catch (err) {
+          console.error(err);
+          alert("Impossible de supprimer ce paiement");
+        }
+      }
+    });
+    historyList.appendChild(wrap);
+  });
+};
+
+const openHistoryModal = async () => {
+  if (!historyModal) return;
+  try {
+    const list = await api("/api/payments/history");
+    renderPaymentHistory(list);
+    historyModal.classList.remove("hidden");
+  } catch (err) {
+    console.error(err);
+    alert("Impossible de charger l'historique");
+  }
+};
+
+const hideHistoryModal = () => {
+  if (!historyModal) return;
+  historyModal.classList.add("hidden");
+};
+
+const updateKitchenPrintToggle = () => {
+  const btn = document.getElementById("kitchen-print-toggle");
+  if (!btn) return;
+  btn.textContent = `Impression cuisine : ${state.printKitchen ? "on" : "off"}`;
+};
+
+const toggleKitchenPrint = () => {
+  state.printKitchen = !state.printKitchen;
+  localStorage.setItem("kitchen-print-enabled", state.printKitchen ? "1" : "0");
+  updateKitchenPrintToggle();
+  alert(state.printKitchen ? "Impression cuisine activee sur cet appareil" : "Impression cuisine desactivee");
+};
+
+const registerEvents = () => {
+  document.getElementById("back-to-tables").addEventListener("click", () => {
+    orderPanel.classList.add("hidden");
+    tablesPanel.classList.remove("hidden");
+    state.currentTable = null;
+    state.currentOrder = null;
+  });
+  document.getElementById("mark-pay").addEventListener("click", markToPay);
+  document.getElementById("send-kitchen").addEventListener("click", sendToKitchen);
+  document.getElementById("refresh-tables").addEventListener("click", refreshTables);
+  document.getElementById("close-ticket").addEventListener("click", hideTicket);
+  document.getElementById("print-ticket").addEventListener("click", printReceiptTicket);
+  document.getElementById("daily-report").addEventListener("click", loadDailyReport);
+  document.getElementById("close-daily").addEventListener("click", hideDaily);
+  document.getElementById("print-daily").addEventListener("click", printDailyTicket);
+  document.getElementById("kitchen-print-toggle").addEventListener("click", toggleKitchenPrint);
+  if (historyBtn) historyBtn.addEventListener("click", openHistoryModal);
+  if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", hideHistoryModal);
+  if (confirmPaymentBtn) confirmPaymentBtn.addEventListener("click", confirmPayment);
+  if (cancelPaymentBtn) cancelPaymentBtn.addEventListener("click", hidePaymentModal);
+  if (paymentCashInput) paymentCashInput.addEventListener("input", updatePaymentTotalHint);
+  if (paymentCardInput) paymentCardInput.addEventListener("input", updatePaymentTotalHint);
+  document.getElementById("fullscreen-btn").addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  });
+};
+
+const registerServiceWorker = () => {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
+};
+
+const init = async () => {
+  registerEvents();
+  registerServiceWorker();
+  state.menu = await api("/api/menu");
+  state.activeCategory = state.menu[0]?.id;
+  state.printKitchen = localStorage.getItem("kitchen-print-enabled") === "1";
+  state.paymentMethod = "card";
+  updateKitchenPrintToggle();
+  renderCategories();
+  renderItems();
+  await refreshTables();
+};
+
+document.addEventListener("DOMContentLoaded", init);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

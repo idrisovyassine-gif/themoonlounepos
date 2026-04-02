@@ -1,0 +1,7 @@
+restaurant-app/node_modules/
+restaurant-app/.env
+restaurant-app/.env.*
+restaurant-app/npm-debug.log*
+restaurant-app/yarn-debug.log*
+restaurant-app/yarn-error.log*
+restaurant-app/.DS_Store
