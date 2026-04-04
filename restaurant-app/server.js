@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const PDFDocument = require("pdfkit");
 const express = require("express");
 const cors = require("cors");
 
@@ -386,45 +387,83 @@ const formatTicketDateTime = (value) =>
     timeZone: "Europe/Brussels"
   }).format(new Date(value));
 
-const buildTelegramTicketMessage = (ticket) => {
-  const header = [
-    "NOUVEAU TICKET ENCAISSE",
-    `${ticket.restaurant}`,
-    `Ticket #${String(ticket.ticketNumber).padStart(4, "0")}`,
-    `Date: ${formatTicketDateTime(ticket.date)}`,
-    `Table: ${ticket.table}`,
-    `Paiement: ${paymentMethodLabel(ticket.paymentMethod)}`
-  ];
+const buildTelegramTicketCaption = (ticket) =>
+  `Ticket #${String(ticket.ticketNumber).padStart(4, "0")} - Table ${ticket.table}`;
 
-  const itemLines = (ticket.items || []).map(
-    (line) => `- ${line.qty} x ${line.name} | ${formatMoney(line.price * line.qty)} EUR`
-  );
+const buildTicketPdfBuffer = (ticket) =>
+  new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: [226.77, 600],
+      margins: { top: 20, bottom: 20, left: 18, right: 18 }
+    });
+    const chunks = [];
 
-  const totals = [
-    `Total TTC: ${formatMoney(ticket.totalTtc)} EUR`,
-    `Cash: ${formatMoney(ticket.paidCash ?? ticket.totalCash ?? 0)} EUR`,
-    `Carte: ${formatMoney(ticket.paidCard ?? ticket.totalCard ?? 0)} EUR`
-  ];
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
 
-  if ((ticket.changeDue || 0) > 0) {
-    totals.push(`Rendu: ${formatMoney(ticket.changeDue)} EUR`);
-  }
+    doc.font("Helvetica-Bold").fontSize(16).text(ticket.restaurant || RESTAURANT_NAME, {
+      align: "center"
+    });
+    doc.moveDown(0.3);
+    doc.font("Helvetica").fontSize(10).text(`Ticket #${String(ticket.ticketNumber).padStart(4, "0")}`, {
+      align: "center"
+    });
+    doc.text(`Date: ${formatTicketDateTime(ticket.date)}`, { align: "center" });
+    doc.text(`Table: ${ticket.table}`, { align: "center" });
+    doc.text(`Paiement: ${paymentMethodLabel(ticket.paymentMethod)}`, { align: "center" });
+    if (ticket.vatNumber) {
+      doc.text(`TVA: ${ticket.vatNumber}`, { align: "center" });
+    }
 
-  return [...header, "", "Articles:", ...itemLines, "", ...totals].join("\n");
-};
+    doc.moveDown(0.6);
+    doc.font("Helvetica-Bold").fontSize(11).text("Articles");
+    doc.moveDown(0.3);
+
+    (ticket.items || []).forEach((line) => {
+      doc.font("Helvetica").fontSize(10).text(
+        `${line.qty} x ${line.name}`,
+        { width: 120, continued: true }
+      );
+      doc.text(`${formatMoney(line.price * line.qty)} EUR`, {
+        align: "right"
+      });
+    });
+
+    doc.moveDown(0.6);
+    doc.font("Helvetica-Bold").fontSize(11).text(`Total TTC: ${formatMoney(ticket.totalTtc)} EUR`);
+    doc.font("Helvetica").fontSize(10).text(`Cash: ${formatMoney(ticket.paidCash ?? ticket.totalCash ?? 0)} EUR`);
+    doc.text(`Carte: ${formatMoney(ticket.paidCard ?? ticket.totalCard ?? 0)} EUR`);
+    if ((ticket.changeDue || 0) > 0) {
+      doc.text(`Rendu: ${formatMoney(ticket.changeDue)} EUR`);
+    }
+
+    doc.moveDown(0.8);
+    doc.font("Helvetica-Oblique").fontSize(9).text("Ticket envoye automatiquement via Telegram.", {
+      align: "center"
+    });
+
+    doc.end();
+  });
 
 const sendTelegramTicket = async (ticket) => {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     return;
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const pdfBuffer = await buildTicketPdfBuffer(ticket);
+  const form = new FormData();
+  form.append("chat_id", TELEGRAM_CHAT_ID);
+  form.append("caption", buildTelegramTicketCaption(ticket));
+  form.append(
+    "document",
+    new Blob([pdfBuffer], { type: "application/pdf" }),
+    `ticket-${ticket.ticketDateKey}-${String(ticket.ticketNumber).padStart(4, "0")}.pdf`
+  );
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text: buildTelegramTicketMessage(ticket)
-    })
+    body: form
   });
 
   if (!response.ok) {
