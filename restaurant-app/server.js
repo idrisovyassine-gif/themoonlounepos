@@ -1,12 +1,43 @@
 const crypto = require("crypto");
+const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+
+const loadEnvFile = (filePath) => {
+  if (!fs.existsSync(filePath)) return;
+
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!match) return;
+
+    const [, key, rawValue] = match;
+    if (process.env[key] !== undefined) return;
+
+    let value = rawValue.trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value.replace(/\\n/g, "\n");
+  });
+};
+
+loadEnvFile(path.join(__dirname, ".env"));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_PIN = String(process.env.APP_PIN || "121030121030").trim();
 const AUTH_COOKIE_NAME = "moonlounge_auth";
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
 const authSessions = new Map();
 
 app.use(cors());
@@ -211,6 +242,12 @@ const computePaymentMethod = (totalCash, totalCard) => {
   return "card";
 };
 
+const paymentMethodLabel = (method) => {
+  if (method === "split") return "Mixte";
+  if (method === "cash") return "Cash";
+  return "Carte";
+};
+
 const getDateKey = (value) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
@@ -335,6 +372,66 @@ const createOrder = (tableId) => {
 };
 
 const findTable = (tableId) => tables.find((t) => t.id === tableId);
+
+const formatMoney = (value) =>
+  new Intl.NumberFormat("fr-BE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value || 0));
+
+const formatTicketDateTime = (value) =>
+  new Intl.DateTimeFormat("fr-BE", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Europe/Brussels"
+  }).format(new Date(value));
+
+const buildTelegramTicketMessage = (ticket) => {
+  const header = [
+    "NOUVEAU TICKET ENCAISSE",
+    `${ticket.restaurant}`,
+    `Ticket #${String(ticket.ticketNumber).padStart(4, "0")}`,
+    `Date: ${formatTicketDateTime(ticket.date)}`,
+    `Table: ${ticket.table}`,
+    `Paiement: ${paymentMethodLabel(ticket.paymentMethod)}`
+  ];
+
+  const itemLines = (ticket.items || []).map(
+    (line) => `- ${line.qty} x ${line.name} | ${formatMoney(line.price * line.qty)} EUR`
+  );
+
+  const totals = [
+    `Total TTC: ${formatMoney(ticket.totalTtc)} EUR`,
+    `Cash: ${formatMoney(ticket.paidCash ?? ticket.totalCash ?? 0)} EUR`,
+    `Carte: ${formatMoney(ticket.paidCard ?? ticket.totalCard ?? 0)} EUR`
+  ];
+
+  if ((ticket.changeDue || 0) > 0) {
+    totals.push(`Rendu: ${formatMoney(ticket.changeDue)} EUR`);
+  }
+
+  return [...header, "", "Articles:", ...itemLines, "", ...totals].join("\n");
+};
+
+const sendTelegramTicket = async (ticket) => {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return;
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: TELEGRAM_CHAT_ID,
+      text: buildTelegramTicketMessage(ticket)
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Telegram API ${response.status}: ${errorText}`);
+  }
+};
 
 const parseCookies = (cookieHeader = "") =>
   cookieHeader
@@ -501,7 +598,7 @@ app.post("/api/orders/:id/mark-to-pay", (req, res) => {
   res.json({ table, order });
 });
 
-app.post("/api/orders/:id/settle", (req, res) => {
+app.post("/api/orders/:id/settle", async (req, res) => {
   const order = orders.get(req.params.id);
   if (!order) {
     return res.status(404).json({ error: "Commande introuvable" });
@@ -556,6 +653,11 @@ app.post("/api/orders/:id/settle", (req, res) => {
   table.orderId = null;
   order.status = "settled";
   orders.delete(order.id);
+  try {
+    await sendTelegramTicket(ticket);
+  } catch (error) {
+    console.error("Impossible d'envoyer le ticket vers Telegram", error);
+  }
   res.json(ticket);
 });
 

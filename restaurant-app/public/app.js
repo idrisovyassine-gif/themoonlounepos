@@ -30,6 +30,7 @@ const ticketVat = document.getElementById("ticket-vat");
 const ticketLines = document.getElementById("ticket-lines");
 const ticketTotal = document.getElementById("ticket-total");
 const dailyModal = document.getElementById("daily-modal");
+const dailyTitle = document.getElementById("daily-title");
 const dailyRestaurant = document.getElementById("daily-restaurant");
 const dailyDate = document.getElementById("daily-date");
 const dailyVat = document.getElementById("daily-vat");
@@ -700,11 +701,11 @@ const printDailyTicket = () => {
     : "";
 
   const html = buildThermalPrintDocument(
-    `${RESTAURANT_NAME} - Ticket journalier`,
+    `${RESTAURANT_NAME} - TICKET DE LA JOURNEE`,
     `
       <div class="ticket-print">
         <h2>${RESTAURANT_NAME}</h2>
-        <div class="meta">Ticket journalier</div>
+        <div class="meta">TICKET DE LA JOURNEE</div>
         <div class="meta">Date : ${displayDate}</div>
         ${vatLine}
         <hr/>
@@ -871,6 +872,7 @@ const loadDailyReport = async () => {
 
 const renderDaily = (report) => {
   if (!report) return;
+  if (dailyTitle) dailyTitle.textContent = "TICKET DE LA JOURNEE";
   dailyDate.textContent = `Date : ${report.date}`;
   if (dailyRestaurant) dailyRestaurant.textContent = RESTAURANT_NAME;
   if (dailyVat) dailyVat.textContent = hasVatNumber(report.vatNumber) ? `TVA: ${report.vatNumber}` : "";
