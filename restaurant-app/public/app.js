@@ -864,6 +864,15 @@ const loadDailyReport = async () => {
     const report = await api("/api/reports/daily");
     state.daily = report;
     renderDaily(report);
+    try {
+      await api("/api/reports/daily/send", {
+        method: "POST",
+        body: JSON.stringify({ date: report.date })
+      });
+    } catch (sendErr) {
+      console.error(sendErr);
+      alert("Ticket journalier affiche, mais l'envoi Telegram a echoue.");
+    }
   } catch (err) {
     console.error(err);
     alert("Impossible de charger le ticket journalier");

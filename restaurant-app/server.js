@@ -390,6 +390,9 @@ const formatTicketDateTime = (value) =>
 const buildTelegramTicketCaption = (ticket) =>
   `Ticket #${String(ticket.ticketNumber).padStart(4, "0")} - Table ${ticket.table}`;
 
+const buildTelegramDailyReportCaption = (report) =>
+  `TICKET DE LA JOURNEE - ${report.date}`;
+
 const buildTicketPdfBuffer = (ticket) =>
   new Promise((resolve, reject) => {
     const doc = new PDFDocument({
@@ -446,6 +449,52 @@ const buildTicketPdfBuffer = (ticket) =>
     doc.end();
   });
 
+const buildDailyReportPdfBuffer = (report) =>
+  new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: [226.77, 700],
+      margins: { top: 20, bottom: 20, left: 18, right: 18 }
+    });
+    const chunks = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.font("Helvetica-Bold").fontSize(15).text(RESTAURANT_NAME, { align: "center" });
+    doc.moveDown(0.25);
+    doc.font("Helvetica-Bold").fontSize(11).text("TICKET DE LA JOURNEE", { align: "center" });
+    doc.font("Helvetica").fontSize(10).text(`Date: ${report.date}`, { align: "center" });
+    if (report.vatNumber) {
+      doc.text(`TVA: ${report.vatNumber}`, { align: "center" });
+    }
+
+    doc.moveDown(0.7);
+    doc.font("Helvetica-Bold").fontSize(11).text("Recap paiements");
+    doc.moveDown(0.3);
+    doc.font("Helvetica").fontSize(10).text(`Cash: ${formatMoney(report.totalCash)} EUR`);
+    doc.text(`Carte: ${formatMoney(report.totalCard)} EUR`);
+    doc.font("Helvetica-Bold").text(`Total TTC: ${formatMoney(report.totalTtc)} EUR`);
+
+    doc.moveDown(0.7);
+    doc.font("Helvetica-Bold").fontSize(11).text("Articles");
+    doc.moveDown(0.3);
+
+    if (!report.items || report.items.length === 0) {
+      doc.font("Helvetica").fontSize(10).text("Aucun ticket pour cette date.");
+    } else {
+      report.items.forEach((line) => {
+        doc.font("Helvetica").fontSize(10).text(
+          `${line.qty} x ${line.name}`,
+          { width: 120, continued: true }
+        );
+        doc.text(`${formatMoney(line.total)} EUR`, { align: "right" });
+      });
+    }
+
+    doc.end();
+  });
+
 const sendTelegramTicket = async (ticket) => {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     return;
@@ -459,6 +508,32 @@ const sendTelegramTicket = async (ticket) => {
     "document",
     new Blob([pdfBuffer], { type: "application/pdf" }),
     `ticket-${ticket.ticketDateKey}-${String(ticket.ticketNumber).padStart(4, "0")}.pdf`
+  );
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
+    method: "POST",
+    body: form
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Telegram API ${response.status}: ${errorText}`);
+  }
+};
+
+const sendTelegramDailyReport = async (report) => {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return;
+  }
+
+  const pdfBuffer = await buildDailyReportPdfBuffer(report);
+  const form = new FormData();
+  form.append("chat_id", TELEGRAM_CHAT_ID);
+  form.append("caption", buildTelegramDailyReportCaption(report));
+  form.append(
+    "document",
+    new Blob([pdfBuffer], { type: "application/pdf" }),
+    `ticket-journee-${report.date}.pdf`
   );
 
   const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
@@ -732,6 +807,49 @@ app.get("/api/reports/daily", (_req, res) => {
     tickets: todayPayments,
     items: Object.values(items)
   });
+});
+
+app.post("/api/reports/daily/send", async (req, res) => {
+  const queryDate = getDateKey(req.body?.date);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const targetKey = queryDate || todayKey;
+  const todayPayments = paymentHistory.filter((p) => {
+    const dayKey = new Date(p.date).toISOString().slice(0, 10);
+    if (dayKey !== targetKey) return false;
+    if (p.status === "active") return true;
+    if (p.status === "edited" && p.includeInDaily) return true;
+    return false;
+  });
+  const total = todayPayments.reduce((sum, t) => sum + (t.totalTtc || 0), 0);
+  const totalCash = todayPayments.reduce((sum, t) => sum + (t.totalCash || 0), 0);
+  const totalCard = todayPayments.reduce((sum, t) => sum + (t.totalCard || 0), 0);
+  const items = {};
+  todayPayments.forEach((ticket) => {
+    (ticket.items || []).forEach((line) => {
+      const entry = items[line.name] || { name: line.name, qty: 0, total: 0 };
+      entry.qty += line.qty;
+      entry.total += line.price * line.qty;
+      items[line.name] = entry;
+    });
+  });
+
+  const report = {
+    date: targetKey,
+    vatNumber: COMPANY_VAT_NUMBER || null,
+    totalTtc: total,
+    totalCash,
+    totalCard,
+    tickets: todayPayments,
+    items: Object.values(items)
+  };
+
+  try {
+    await sendTelegramDailyReport(report);
+    res.json({ ok: true, sent: true, date: targetKey });
+  } catch (error) {
+    console.error("Impossible d'envoyer le ticket journalier vers Telegram", error);
+    res.status(500).json({ ok: false, error: "Envoi Telegram impossible" });
+  }
 });
 
 app.get("/api/payments/history", (req, res) => {
