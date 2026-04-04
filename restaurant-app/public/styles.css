@@ -43,6 +43,20 @@ body::after {
   display: none;
 }
 
+body.printing-active .print-root {
+  display: block;
+  position: fixed;
+  left: 50%;
+  top: 0;
+  width: 54mm;
+  min-height: 100vh;
+  padding: 2mm 0 0.5mm;
+  background: #fff;
+  color: #000;
+  transform: translateX(-50%);
+  z-index: 9999;
+}
+
 @media print {
   @page {
     size: 58mm auto;

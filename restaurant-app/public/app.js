@@ -60,6 +60,10 @@ const SHISHA_HEADS = [
   { id: "hookah", label: "Tete Hookah", price: 20 }
 ];
 
+const prefersInlinePrint = () =>
+  window.matchMedia("(pointer: coarse)").matches ||
+  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
 const api = async (url, options = {}) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
   if (res.status === 401) {
@@ -407,7 +411,7 @@ const openPrintWindow = (html, options = {}) => {
     return;
   }
 
-  if (preferPopup) {
+  if (preferPopup && !prefersInlinePrint()) {
     const popup = window.open("", "_blank", "width=420,height=800");
     if (popup) {
       popup.document.open();
@@ -445,17 +449,21 @@ const openPrintWindow = (html, options = {}) => {
 
   const parsed = new DOMParser().parseFromString(html, "text/html");
   printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
+  document.body.classList.add("printing-active");
 
   const cleanup = () => {
     printRoot.innerHTML = "";
+    document.body.classList.remove("printing-active");
     document.removeEventListener("afterprint", cleanup);
   };
 
   document.addEventListener("afterprint", cleanup);
-  // Force a layout pass before printing so browsers pick up the new ticket DOM
-  // while preserving the current user gesture.
-  printRoot.getBoundingClientRect();
-  window.print();
+  // Give mobile browsers time to paint the injected print DOM before opening
+  // the print preview, otherwise some tablets show a blank page.
+  requestAnimationFrame(() => {
+    printRoot.getBoundingClientRect();
+    setTimeout(() => window.print(), 120);
+  });
   setTimeout(cleanup, 1500);
 };
 
@@ -683,7 +691,7 @@ const printReceiptTicket = () => {
       </div>
     `
   );
-  openPrintWindow(html, { preferPopup: true });
+  openPrintWindow(html);
 };
 
 const printDailyTicket = () => {
@@ -718,7 +726,7 @@ const printDailyTicket = () => {
       </div>
     `
   );
-  openPrintWindow(html, { preferPopup: true });
+  openPrintWindow(html);
 };
 
 const openTable = async (tableId) => {
