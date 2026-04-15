@@ -468,7 +468,7 @@ const openPrintWindow = (html, options = {}) => {
 };
 
 const THERMAL_PAPER_WIDTH_MM = 58;
-const THERMAL_CONTENT_WIDTH_MM = 54;
+const THERMAL_CONTENT_WIDTH_MM = 48;
 
 const buildThermalPrintDocument = (title, body) => `<!doctype html>
 <html>
@@ -509,7 +509,7 @@ const buildThermalPrintDocument = (title, body) => `<!doctype html>
 
       .ticket-print h2 {
         margin: 0 0 1.5mm;
-        font-size: 20px;
+        font-size: 18px;
         line-height: 1.1;
         text-align: center;
         font-weight: 800;

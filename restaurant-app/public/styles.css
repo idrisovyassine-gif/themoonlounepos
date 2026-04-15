@@ -46,14 +46,14 @@ body::after {
 body.printing-active .print-root {
   display: block;
   position: fixed;
-  left: 50%;
+  left: 0;
   top: 0;
-  width: 54mm;
+  width: 48mm;
   min-height: 100vh;
   padding: 2mm 0 0.5mm;
+  margin-left: 4mm;
   background: #fff;
   color: #000;
-  transform: translateX(-50%);
   z-index: 9999;
 }
 
@@ -82,17 +82,17 @@ body.printing-active .print-root {
   .print-root {
     display: block;
     position: absolute;
-    left: 50%;
+    left: 0;
     top: 0;
-    width: 54mm;
+    width: 48mm;
     padding: 2mm 0 0.5mm;
+    margin-left: 4mm;
     background: #fff;
     color: #000;
     font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
     font-size: 13px;
     line-height: 1.25;
     text-align: left;
-    transform: translateX(-50%);
   }
 
   .print-root::before {
@@ -105,9 +105,13 @@ body.printing-active .print-root {
   }
 
   .print-root h2 {
-    font-size: 20px;
+    font-size: 18px;
     margin: 0 0 1.5mm 0;
     text-align: center;
+  }
+
+  .print-root .ticket-print {
+    width: 100%;
   }
 
   .print-root .meta,
