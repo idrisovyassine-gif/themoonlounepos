@@ -69,10 +69,6 @@ const ALCOHOL_OPTION_CATEGORIES = new Set(["mocktails", "mojitos"]);
 const ALCOHOL_SUPPLEMENT_PRICE = 3;
 let alcoholOptionResolver = null;
 
-const prefersInlinePrint = () =>
-  window.matchMedia("(pointer: coarse)").matches ||
-  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
-
 const api = async (url, options = {}) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
   if (res.status === 401) {
@@ -480,14 +476,14 @@ const renderKitchenStatus = () => {
 };
 
 const openPrintWindow = (html, options = {}) => {
-  const { preferPopup = false } = options;
+  const { preferPopup = true } = options;
   const printRoot = document.getElementById("print-root");
   if (!printRoot) {
     alert("Zone d'impression introuvable");
     return;
   }
 
-  if (preferPopup && !prefersInlinePrint()) {
+  if (preferPopup) {
     const popup = window.open("", "_blank", "width=420,height=800");
     if (popup) {
       popup.document.open();
@@ -506,14 +502,14 @@ const openPrintWindow = (html, options = {}) => {
         try {
           popup.focus();
           popup.print();
-          setTimeout(closePopup, 1500);
+          setTimeout(closePopup, 120000);
         } catch (err) {
           console.error("Impossible de lancer l'impression popup", err);
           closePopup();
         }
       };
 
-      popup.addEventListener("afterprint", closePopup, { once: true });
+      popup.addEventListener("afterprint", () => setTimeout(closePopup, 1000), { once: true });
       if (popup.document.readyState === "complete") {
         setTimeout(launchPopupPrint, 50);
       } else {
@@ -523,30 +519,37 @@ const openPrintWindow = (html, options = {}) => {
     }
   }
 
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
-  document.body.classList.add("printing-active");
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.srcdoc = html;
+  document.body.appendChild(frame);
 
   let cleaned = false;
-  const cleanupAfterPrint = () => setTimeout(cleanup, 1000);
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    printRoot.innerHTML = "";
-    document.body.classList.remove("printing-active");
-    document.removeEventListener("afterprint", cleanupAfterPrint);
+    frame.remove();
   };
 
-  document.addEventListener("afterprint", cleanupAfterPrint, { once: true });
-  // Give mobile browsers time to paint the injected print DOM before opening
-  // the print preview, otherwise some tablets show a blank page.
-  requestAnimationFrame(() => {
-    printRoot.getBoundingClientRect();
+  frame.addEventListener("load", () => {
     setTimeout(() => {
-      window.print();
+      const printWindow = frame.contentWindow;
+      if (!printWindow) {
+        cleanup();
+        return;
+      }
+      printWindow.focus();
+      printWindow.print();
       setTimeout(cleanup, 120000);
-    }, 300);
-  });
+    }, 500);
+  }, { once: true });
 };
 
 const THERMAL_PAPER_WIDTH_MM = 58;
