@@ -527,20 +527,26 @@ const openPrintWindow = (html, options = {}) => {
   printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
   document.body.classList.add("printing-active");
 
+  let cleaned = false;
+  const cleanupAfterPrint = () => setTimeout(cleanup, 1000);
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     printRoot.innerHTML = "";
     document.body.classList.remove("printing-active");
-    document.removeEventListener("afterprint", cleanup);
+    document.removeEventListener("afterprint", cleanupAfterPrint);
   };
 
-  document.addEventListener("afterprint", cleanup);
+  document.addEventListener("afterprint", cleanupAfterPrint, { once: true });
   // Give mobile browsers time to paint the injected print DOM before opening
   // the print preview, otherwise some tablets show a blank page.
   requestAnimationFrame(() => {
     printRoot.getBoundingClientRect();
-    setTimeout(() => window.print(), 120);
+    setTimeout(() => {
+      window.print();
+      setTimeout(cleanup, 120000);
+    }, 300);
   });
-  setTimeout(cleanup, 1500);
 };
 
 const THERMAL_PAPER_WIDTH_MM = 58;

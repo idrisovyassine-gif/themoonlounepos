@@ -70,6 +70,10 @@ body.printing-active .print-root {
     margin: 0 !important;
   }
 
+  body::after {
+    display: none !important;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -81,7 +85,7 @@ body.printing-active .print-root {
 
   .print-root {
     display: block;
-    position: absolute;
+    position: fixed;
     left: 0;
     top: 0;
     width: 48mm;
