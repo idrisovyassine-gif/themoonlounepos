@@ -592,6 +592,21 @@ body.printing-active .print-root {
   width: min(720px, 100%);
 }
 
+.option-card {
+  width: min(460px, 100%);
+}
+
+.option-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.option-choice-grid button {
+  min-height: 52px;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;

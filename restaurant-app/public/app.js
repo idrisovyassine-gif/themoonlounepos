@@ -43,6 +43,12 @@ const cancelPaymentBtn = document.getElementById("cancel-payment");
 const paymentCashInput = document.getElementById("payment-cash");
 const paymentCardInput = document.getElementById("payment-card");
 const paymentTotalHint = document.getElementById("payment-total-hint");
+const alcoholOptionModal = document.getElementById("alcohol-option-modal");
+const alcoholOptionTitle = document.getElementById("alcohol-option-title");
+const alcoholOptionSubtitle = document.getElementById("alcohol-option-subtitle");
+const alcoholOptionNoBtn = document.getElementById("alcohol-option-no");
+const alcoholOptionYesBtn = document.getElementById("alcohol-option-yes");
+const alcoholOptionCancelBtn = document.getElementById("alcohol-option-cancel");
 const historyModal = document.getElementById("history-modal");
 const historyList = document.getElementById("history-list");
 const historyBtn = document.getElementById("payment-history");
@@ -59,6 +65,9 @@ const SHISHA_HEADS = [
   { id: "brohood", label: "Tete Brohood", price: 15 },
   { id: "hookah", label: "Tete Hookah", price: 20 }
 ];
+const ALCOHOL_OPTION_CATEGORIES = new Set(["mocktails", "mojitos"]);
+const ALCOHOL_SUPPLEMENT_PRICE = 3;
+let alcoholOptionResolver = null;
 
 const prefersInlinePrint = () =>
   window.matchMedia("(pointer: coarse)").matches ||
@@ -174,6 +183,57 @@ const getSelectedShishaHead = () => {
   return SHISHA_HEADS.find((head) => head.id === id) || null;
 };
 
+const categoryNeedsAlcoholOption = (categoryId) => ALCOHOL_OPTION_CATEGORIES.has(categoryId);
+
+const getMenuItemQuantity = (item, categoryId) => {
+  const orderItems = state.currentOrder?.items || [];
+  if (item.isShisha) {
+    return orderItems
+      .filter((i) => i.shishaFlavorId === item.id)
+      .reduce((sum, i) => sum + i.qty, 0);
+  }
+  if (categoryNeedsAlcoholOption(categoryId)) {
+    return orderItems
+      .filter((i) => i.id === item.id || i.baseItemId === item.id)
+      .reduce((sum, i) => sum + i.qty, 0);
+  }
+  return orderItems.find((i) => i.id === item.id)?.qty || 0;
+};
+
+const buildAlcoholOptionLine = (item, isAlcoholized) => ({
+  id: `${item.id}-${isAlcoholized ? "alcoolise" : "sans-alcool"}`,
+  name: `${item.name} - ${isAlcoholized ? "Alcoolise" : "Sans alcool"}`,
+  price: normalizeMoney(item.price + (isAlcoholized ? ALCOHOL_SUPPLEMENT_PRICE : 0)),
+  qty: 1,
+  baseItemId: item.id,
+  alcoholized: isAlcoholized
+});
+
+const resolveAlcoholOption = (value) => {
+  if (!alcoholOptionResolver) return;
+  const resolver = alcoholOptionResolver;
+  alcoholOptionResolver = null;
+  if (alcoholOptionModal) alcoholOptionModal.classList.add("hidden");
+  resolver(value);
+};
+
+const pickAlcoholOption = (item) => {
+  if (!alcoholOptionModal) {
+    return Promise.resolve(window.confirm(`${item.name}\nAlcoolise avec supplement de 3 EUR ?`));
+  }
+  if (alcoholOptionResolver) {
+    resolveAlcoholOption(null);
+  }
+  if (alcoholOptionTitle) alcoholOptionTitle.textContent = item.name;
+  if (alcoholOptionSubtitle) {
+    alcoholOptionSubtitle.textContent = `Choisir la version. Alcoolise ajoute ${euros(ALCOHOL_SUPPLEMENT_PRICE)}.`;
+  }
+  alcoholOptionModal.classList.remove("hidden");
+  return new Promise((resolve) => {
+    alcoholOptionResolver = resolve;
+  });
+};
+
 const statusLabel = (status) => {
   if (status === "occupied") return "Occupee";
   if (status === "to_pay") return "A payer";
@@ -217,11 +277,7 @@ const renderItems = () => {
   category.items.forEach((item) => {
     const card = document.createElement("div");
     card.className = "item-card";
-    const qty = item.isShisha
-      ? (state.currentOrder?.items || [])
-          .filter((i) => i.shishaFlavorId === item.id)
-          .reduce((sum, i) => sum + i.qty, 0)
-      : state.currentOrder?.items.find((i) => i.id === item.id)?.qty || 0;
+    const qty = getMenuItemQuantity(item, category.id);
     const selectedHead = getSelectedShishaHead();
     const priceLabel = item.isShisha
       ? selectedHead
@@ -251,7 +307,7 @@ const renderItems = () => {
       });
     }
     card.querySelectorAll("button[data-delta]").forEach((btn) =>
-      btn.addEventListener("click", () => updateItemQuantity(item, Number(btn.dataset.delta)))
+      btn.addEventListener("click", () => updateItemQuantity(item, Number(btn.dataset.delta), category.id))
     );
     itemList.appendChild(card);
   });
@@ -317,7 +373,7 @@ const removeOrderLine = (item) => {
   persistOrder();
 };
 
-const updateItemQuantity = (item, delta) => {
+const updateItemQuantity = async (item, delta, categoryId = state.activeCategory) => {
   if (!state.currentOrder) return;
   const items = [...state.currentOrder.items];
   if (item.isShisha) {
@@ -352,6 +408,26 @@ const updateItemQuantity = (item, delta) => {
       if (!existing) {
         existing = items.find((i) => i.shishaFlavorId === item.id);
       }
+      if (existing) {
+        existing.qty = Math.max(0, existing.qty + delta);
+      }
+    }
+  } else if (categoryNeedsAlcoholOption(categoryId)) {
+    if (delta > 0) {
+      const isAlcoholized = await pickAlcoholOption(item);
+      if (isAlcoholized === null) return;
+      const line = buildAlcoholOptionLine(item, isAlcoholized);
+      const existing = items.find((i) => i.id === line.id);
+      if (!existing) {
+        items.push(line);
+      } else {
+        existing.qty = Math.max(0, existing.qty + delta);
+      }
+    } else if (delta < 0) {
+      const existing =
+        items.find((i) => i.id === item.id) ||
+        items.find((i) => i.baseItemId === item.id && !i.alcoholized) ||
+        items.find((i) => i.baseItemId === item.id);
       if (existing) {
         existing.qty = Math.max(0, existing.qty + delta);
       }
@@ -1240,6 +1316,9 @@ const registerEvents = () => {
   if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", hideHistoryModal);
   if (confirmPaymentBtn) confirmPaymentBtn.addEventListener("click", confirmPayment);
   if (cancelPaymentBtn) cancelPaymentBtn.addEventListener("click", hidePaymentModal);
+  if (alcoholOptionNoBtn) alcoholOptionNoBtn.addEventListener("click", () => resolveAlcoholOption(false));
+  if (alcoholOptionYesBtn) alcoholOptionYesBtn.addEventListener("click", () => resolveAlcoholOption(true));
+  if (alcoholOptionCancelBtn) alcoholOptionCancelBtn.addEventListener("click", () => resolveAlcoholOption(null));
   if (paymentCashInput) paymentCashInput.addEventListener("input", updatePaymentTotalHint);
   if (paymentCardInput) paymentCardInput.addEventListener("input", updatePaymentTotalHint);
   document.getElementById("fullscreen-btn").addEventListener("click", () => {
