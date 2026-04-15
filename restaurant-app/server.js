@@ -113,6 +113,29 @@ const menu = [
     ]
   },
   {
+    id: "mocktails",
+    label: "Nos Mocktails",
+    items: [
+      { id: "the-moon-rose", name: "The Moon Rose", price: 9.0 },
+      { id: "blue-lady", name: "Blue Lady", price: 9.0 },
+      { id: "fleur-amour", name: "Fleur d'Amour", price: 9.0 },
+      { id: "pina-colada", name: "Pina Colada", price: 9.0 },
+      { id: "sex-on-the-beach", name: "Sex on the beach", price: 9.0 }
+    ]
+  },
+  {
+    id: "mojitos",
+    label: "Nos Mojitos",
+    items: [
+      { id: "mojito-fraise", name: "Mojito Fraise", price: 9.0 },
+      { id: "mojito-peche", name: "Mojito Peche", price: 9.0 },
+      { id: "mojito-violette", name: "Mojito Violette", price: 9.0 },
+      { id: "mojito-pasteque", name: "Mojito Pasteque", price: 9.0 },
+      { id: "mojito-passion", name: "Mojito Fruit de la passion", price: 9.0 },
+      { id: "mojito-blue-lagoon", name: "Mojito Blue Lagoon", price: 9.0 }
+    ]
+  },
+  {
     id: "vins-champagnes",
     label: "Vins & Champagnes",
     items: [
