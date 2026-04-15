@@ -59,7 +59,6 @@ body.printing-active .print-root {
 
 @media print {
   @page {
-    size: 58mm auto;
     margin: 0;
   }
 

@@ -478,7 +478,6 @@ const buildThermalPrintDocument = (title, body) => `<!doctype html>
     <title>${title}</title>
     <style>
       @page {
-        size: ${THERMAL_PAPER_WIDTH_MM}mm auto;
         margin: 0;
       }
 
