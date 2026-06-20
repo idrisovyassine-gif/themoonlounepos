@@ -580,6 +580,8 @@ const buildThermalPrintDocument = (title, body) => `<!doctype html>
 
       body {
         min-width: ${THERMAL_PAPER_WIDTH_MM}mm;
+        display: flex;
+        justify-content: center;
         font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
         color: #000;
         -webkit-print-color-adjust: exact;
@@ -641,6 +643,14 @@ const buildThermalPrintDocument = (title, body) => `<!doctype html>
         font-size: 13px;
       }
 
+      .ticket-print .payment-meta {
+        margin: 1mm 0;
+        font-size: 13px;
+        line-height: 1.2;
+        text-align: left;
+        font-weight: 700;
+      }
+
       .ticket-print .total {
         margin-top: 1mm;
         font-size: 17px;
@@ -668,6 +678,10 @@ const thermalRow = (label, amount = "", extraClass = "") => {
     </div>
   `;
 };
+
+const thermalPaymentLine = (label, amount) => `
+  <div class="payment-meta">${label} ${amount}</div>
+`;
 
 const printKitchenTicket = (order) => {
   const tableLabel = state.currentTable ? `Table ${state.currentTable.id}` : "Table";
@@ -739,16 +753,16 @@ const printReceiptTicket = () => {
     .join("") || '<div class="meta">Aucun article</div>';
   let paymentDetails = "";
   if (totalCash > 0) {
-    paymentDetails += thermalRow("Cash", euros(totalCash), "summary");
+    paymentDetails += thermalPaymentLine("Cash", euros(totalCash));
   }
   if (totalCard > 0) {
-    paymentDetails += thermalRow("Carte", euros(totalCard), "summary");
+    paymentDetails += thermalPaymentLine("Carte", euros(totalCard));
   }
   if (!paymentDetails) {
-    paymentDetails = thermalRow("Carte", euros(lastTicket.totalTtc || 0), "summary");
+    paymentDetails = thermalPaymentLine("Carte", euros(lastTicket.totalTtc || 0));
   }
   if (typeof lastTicket.changeDue === "number" && lastTicket.changeDue > 0) {
-    paymentDetails += thermalRow("Rendu", euros(lastTicket.changeDue), "summary");
+    paymentDetails += thermalPaymentLine("Rendu", euros(lastTicket.changeDue));
   }
   const vatLine = hasVatNumber(lastTicket.vatNumber)
     ? `<div class="meta">TVA: ${lastTicket.vatNumber}</div>`
@@ -767,10 +781,7 @@ const printReceiptTicket = () => {
         ${lines}
         <hr/>
         ${paymentDetails}
-        <div class="row total">
-          <span class="label">Total TTC</span>
-          <span class="amount">${euros(lastTicket.totalTtc || 0)}</span>
-        </div>
+        <div class="payment-meta total">Total TTC ${euros(lastTicket.totalTtc || 0)}</div>
         <div class="footer">Chaussée d'Haecht 32, 1210 Bruxelles</div>
       </div>
     `
