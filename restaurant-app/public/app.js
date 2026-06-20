@@ -476,80 +476,34 @@ const renderKitchenStatus = () => {
 };
 
 const openPrintWindow = (html, options = {}) => {
-  const { preferPopup = true } = options;
   const printRoot = document.getElementById("print-root");
   if (!printRoot) {
     alert("Zone d'impression introuvable");
     return;
   }
-
-  if (preferPopup) {
-    const popup = window.open("", "_blank", "width=420,height=800");
-    if (popup) {
-      popup.document.open();
-      popup.document.write(html);
-      popup.document.close();
-
-      const closePopup = () => {
-        try {
-          popup.close();
-        } catch (err) {
-          console.error("Impossible de fermer la fenetre d'impression", err);
-        }
-      };
-
-      const launchPopupPrint = () => {
-        try {
-          popup.focus();
-          popup.print();
-          setTimeout(closePopup, 120000);
-        } catch (err) {
-          console.error("Impossible de lancer l'impression popup", err);
-          closePopup();
-        }
-      };
-
-      popup.addEventListener("afterprint", () => setTimeout(closePopup, 1000), { once: true });
-      if (popup.document.readyState === "complete") {
-        setTimeout(launchPopupPrint, 50);
-      } else {
-        popup.addEventListener("load", () => setTimeout(launchPopupPrint, 50), { once: true });
-      }
-      return;
-    }
-  }
-
-  const frame = document.createElement("iframe");
-  frame.setAttribute("aria-hidden", "true");
-  frame.style.position = "fixed";
-  frame.style.right = "0";
-  frame.style.bottom = "0";
-  frame.style.width = "1px";
-  frame.style.height = "1px";
-  frame.style.border = "0";
-  frame.style.opacity = "0";
-  frame.srcdoc = html;
-  document.body.appendChild(frame);
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
+  document.body.classList.add("printing-active");
 
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    frame.remove();
+    printRoot.innerHTML = "";
+    document.body.classList.remove("printing-active");
+    window.removeEventListener("afterprint", cleanupAfterPrint);
   };
 
-  frame.addEventListener("load", () => {
+  const cleanupAfterPrint = () => setTimeout(cleanup, 1000);
+  window.addEventListener("afterprint", cleanupAfterPrint, { once: true });
+
+  requestAnimationFrame(() => {
+    printRoot.getBoundingClientRect();
     setTimeout(() => {
-      const printWindow = frame.contentWindow;
-      if (!printWindow) {
-        cleanup();
-        return;
-      }
-      printWindow.focus();
-      printWindow.print();
+      window.print();
       setTimeout(cleanup, 120000);
     }, 500);
-  }, { once: true });
+  });
 };
 
 const THERMAL_PAPER_WIDTH_MM = 58;
