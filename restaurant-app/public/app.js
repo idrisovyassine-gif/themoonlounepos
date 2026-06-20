@@ -482,7 +482,11 @@ const openPrintWindow = (html, options = {}) => {
     return;
   }
   const parsed = new DOMParser().parseFromString(html, "text/html");
-  printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
+  const embeddedStyles = [...parsed.querySelectorAll("style")]
+    .map((styleEl) => styleEl.outerHTML)
+    .join("");
+  const bodyMarkup = parsed.body ? parsed.body.innerHTML : html;
+  printRoot.innerHTML = `${embeddedStyles}${bodyMarkup}`;
   document.body.classList.add("printing-active");
 
   let cleaned = false;
@@ -502,7 +506,7 @@ const openPrintWindow = (html, options = {}) => {
     setTimeout(() => {
       window.print();
       setTimeout(cleanup, 120000);
-    }, 500);
+    }, 900);
   });
 };
 

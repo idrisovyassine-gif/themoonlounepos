@@ -46,15 +46,15 @@ body::after {
 body.printing-active .print-root {
   display: block;
   position: fixed;
-  left: 0;
+  left: 50%;
   top: 0;
-  width: 48mm;
+  width: 58mm;
   min-height: 100vh;
-  padding: 2mm 0 0.5mm;
-  margin-left: 4mm;
+  padding: 0;
   background: #fff;
   color: #000;
   z-index: 9999;
+  transform: translateX(-50%);
 }
 
 @media print {
@@ -86,17 +86,17 @@ body.printing-active .print-root {
   .print-root {
     display: block;
     position: fixed;
-    left: 0;
+    left: 50%;
     top: 0;
-    width: 48mm;
-    padding: 2mm 0 0.5mm;
-    margin-left: 4mm;
+    width: 58mm;
+    padding: 0;
     background: #fff;
     color: #000;
     font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
     font-size: 13px;
     line-height: 1.25;
     text-align: left;
+    transform: translateX(-50%);
   }
 
   .print-root::before {
