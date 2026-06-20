@@ -513,132 +513,47 @@ const openPrintWindow = (html, options = {}) => {
 const THERMAL_PAPER_WIDTH_MM = 58;
 const THERMAL_CONTENT_WIDTH_MM = 48;
 
+const THERMAL_BODY_STYLE = `margin:0;padding:0;background:#fff;color:#000;font-family:'Segoe UI','Noto Sans','Arial Unicode MS','DejaVu Sans',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;`;
+const THERMAL_WRAPPER_STYLE = `width:${THERMAL_CONTENT_WIDTH_MM}mm;margin:0 auto;padding:2mm 0 0.5mm;color:#000;`;
+const THERMAL_TITLE_STYLE = "margin:0 0 1.5mm 0;font-size:18px;line-height:1.1;text-align:center;font-weight:800;";
+const THERMAL_META_STYLE = "margin:0 0 1mm 0;font-size:12px;line-height:1.2;text-align:center;font-weight:700;";
+const THERMAL_RULE_STYLE = "border:0;border-top:1px dashed #000;margin:1.5mm 0;";
+const THERMAL_ROW_STYLE = "display:flex;justify-content:space-between;align-items:flex-start;gap:2mm;margin:1mm 0;font-size:14px;line-height:1.2;font-weight:700;";
+const THERMAL_LABEL_STYLE = "flex:1;min-width:0;word-break:break-word;";
+const THERMAL_AMOUNT_STYLE = "flex:0 0 auto;white-space:nowrap;text-align:right;";
+const THERMAL_PAYMENT_STYLE = "margin:1mm 0;font-size:13px;line-height:1.2;text-align:left;font-weight:700;";
+const THERMAL_TOTAL_STYLE = "margin-top:1mm;font-size:17px;line-height:1.2;text-align:left;font-weight:800;";
+const THERMAL_FOOTER_STYLE = "margin-top:1.25mm;font-size:12px;line-height:1.2;text-align:center;font-weight:700;";
+
 const buildThermalPrintDocument = (title, body) => `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${title}</title>
-    <style>
-      @page {
-        margin: 0;
-      }
-
-      html,
-      body {
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        background: #fff;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        min-width: ${THERMAL_PAPER_WIDTH_MM}mm;
-        display: flex;
-        justify-content: center;
-        font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
-        color: #000;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-
-      .ticket-print {
-        width: ${THERMAL_CONTENT_WIDTH_MM}mm;
-        margin: 0 auto;
-        padding: 2mm 0 0.5mm;
-      }
-
-      .ticket-print h2 {
-        margin: 0 0 1.5mm;
-        font-size: 18px;
-        line-height: 1.1;
-        text-align: center;
-        font-weight: 800;
-      }
-
-      .ticket-print .meta {
-        margin: 0 0 1mm;
-        font-size: 12px;
-        line-height: 1.2;
-        text-align: center;
-        font-weight: 700;
-      }
-
-      .ticket-print hr {
-        border: 0;
-        border-top: 1px dashed #000;
-        margin: 1.5mm 0;
-      }
-
-      .ticket-print .row {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 2mm;
-        margin: 1mm 0;
-        font-size: 14px;
-        line-height: 1.2;
-        font-weight: 700;
-      }
-
-      .ticket-print .label {
-        flex: 1;
-        min-width: 0;
-        word-break: break-word;
-      }
-
-      .ticket-print .amount {
-        flex: 0 0 auto;
-        white-space: nowrap;
-        text-align: right;
-      }
-
-      .ticket-print .summary {
-        font-size: 13px;
-      }
-
-      .ticket-print .payment-meta {
-        margin: 1mm 0;
-        font-size: 13px;
-        line-height: 1.2;
-        text-align: left;
-        font-weight: 700;
-      }
-
-      .ticket-print .total {
-        margin-top: 1mm;
-        font-size: 17px;
-        font-weight: 800;
-      }
-
-      .ticket-print .footer {
-        margin-top: 1.25mm;
-        font-size: 12px;
-        line-height: 1.2;
-        text-align: center;
-        font-weight: 700;
-      }
-    </style>
   </head>
-  <body>${body}</body>
+  <body style="${THERMAL_BODY_STYLE}">${body}</body>
 </html>`;
 
-const thermalRow = (label, amount = "", extraClass = "") => {
-  const className = ["row", extraClass].filter(Boolean).join(" ");
+const thermalWrapper = (content) => `<div style="${THERMAL_WRAPPER_STYLE}">${content}</div>`;
+
+const thermalTitle = (value) => `<div style="${THERMAL_TITLE_STYLE}">${value}</div>`;
+
+const thermalMeta = (value) => `<div style="${THERMAL_META_STYLE}">${value}</div>`;
+
+const thermalRule = () => `<hr style="${THERMAL_RULE_STYLE}"/>`;
+
+const thermalRow = (label, amount = "") => {
   return `
-    <div class="${className}">
-      <span class="label">${label}</span>
-      ${amount ? `<span class="amount">${amount}</span>` : ""}
+    <div style="${THERMAL_ROW_STYLE}">
+      <span style="${THERMAL_LABEL_STYLE}">${label}</span>
+      ${amount ? `<span style="${THERMAL_AMOUNT_STYLE}">${amount}</span>` : ""}
     </div>
   `;
 };
 
 const thermalPaymentLine = (label, amount) => `
-  <div class="payment-meta">${label} ${amount}</div>
+  <div style="${THERMAL_PAYMENT_STYLE}">${label} ${amount}</div>
 `;
 
 const printKitchenTicket = (order) => {
@@ -653,17 +568,15 @@ const printKitchenTicket = (order) => {
 
   const html = buildThermalPrintDocument(
     "Ticket Cuisine",
-    `
-      <div class="ticket-print">
-        <h2>Ticket Cuisine</h2>
-        <div class="meta">${tableLabel}</div>
-        <div class="meta">${date}</div>
-        <hr/>
-        ${lines}
-        <hr/>
-        ${thermalRow(`Total lignes: ${order.items?.reduce((a, l) => a + l.qty, 0) || 0}`, "", "summary")}
-      </div>
-    `
+    thermalWrapper(`
+      ${thermalTitle("Ticket Cuisine")}
+      ${thermalMeta(tableLabel)}
+      ${thermalMeta(date)}
+      ${thermalRule()}
+      ${lines}
+      ${thermalRule()}
+      ${thermalPaymentLine("Total lignes:", String(order.items?.reduce((a, l) => a + l.qty, 0) || 0))}
+    `)
   );
   openPrintWindow(html);
 };
@@ -708,7 +621,7 @@ const printReceiptTicket = () => {
       (line) =>
         thermalRow(`${line.qty} x ${line.name}`, euros(line.price * line.qty))
     )
-    .join("") || '<div class="meta">Aucun article</div>';
+    .join("") || thermalMeta("Aucun article");
   let paymentDetails = "";
   if (totalCash > 0) {
     paymentDetails += thermalPaymentLine("Cash", euros(totalCash));
@@ -723,26 +636,24 @@ const printReceiptTicket = () => {
     paymentDetails += thermalPaymentLine("Rendu", euros(lastTicket.changeDue));
   }
   const vatLine = hasVatNumber(lastTicket.vatNumber)
-    ? `<div class="meta">TVA: ${lastTicket.vatNumber}</div>`
+    ? thermalMeta(`TVA: ${lastTicket.vatNumber}`)
     : "";
 
   const html = buildThermalPrintDocument(
     "Ticket",
-    `
-      <div class="ticket-print">
-        <h2>${lastTicket.restaurant || "Ticket"}</h2>
-        <div class="meta">Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}</div>
-        <div class="meta">Table ${lastTicket.table}</div>
-        <div class="meta">${date.toLocaleDateString()} ${date.toLocaleTimeString()} | ${methodLabel}</div>
-        ${vatLine}
-        <hr/>
-        ${lines}
-        <hr/>
-        ${paymentDetails}
-        <div class="payment-meta total">Total TTC ${euros(lastTicket.totalTtc || 0)}</div>
-        <div class="footer">Chaussée d'Haecht 32, 1210 Bruxelles</div>
-      </div>
-    `
+    thermalWrapper(`
+      ${thermalTitle(lastTicket.restaurant || "Ticket")}
+      ${thermalMeta(`Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}`)}
+      ${thermalMeta(`Table ${lastTicket.table}`)}
+      ${thermalMeta(`${date.toLocaleDateString()} ${date.toLocaleTimeString()} | ${methodLabel}`)}
+      ${vatLine}
+      ${thermalRule()}
+      ${lines}
+      ${thermalRule()}
+      ${paymentDetails}
+      <div style="${THERMAL_TOTAL_STYLE}">Total TTC ${euros(lastTicket.totalTtc || 0)}</div>
+      <div style="${THERMAL_FOOTER_STYLE}">Chaussée d'Haecht 32, 1210 Bruxelles</div>
+    `)
   );
   openPrintWindow(html);
 };
@@ -753,31 +664,26 @@ const printDailyTicket = () => {
     return;
   }
   const lines = `
-    ${thermalRow("Cash", euros(state.daily.totalCash || 0), "summary")}
-    ${thermalRow("Carte", euros(state.daily.totalCard || 0), "summary")}
+    ${thermalPaymentLine("Cash", euros(state.daily.totalCash || 0))}
+    ${thermalPaymentLine("Carte", euros(state.daily.totalCard || 0))}
   `;
   const displayDate = state.daily.date;
   const vatLine = hasVatNumber(state.daily.vatNumber)
-    ? `<div class="meta">TVA: ${state.daily.vatNumber}</div>`
+    ? thermalMeta(`TVA: ${state.daily.vatNumber}`)
     : "";
 
   const html = buildThermalPrintDocument(
     `${RESTAURANT_NAME} - TICKET DE LA JOURNEE`,
-    `
-      <div class="ticket-print">
-        <h2>${RESTAURANT_NAME}</h2>
-        <div class="meta">TICKET DE LA JOURNEE</div>
-        <div class="meta">Date : ${displayDate}</div>
-        ${vatLine}
-        <hr/>
-        ${lines}
-        <hr/>
-        <div class="row total">
-          <span class="label">Total journalier</span>
-          <span class="amount">${euros(state.daily.totalTtc || 0)}</span>
-        </div>
-      </div>
-    `
+    thermalWrapper(`
+      ${thermalTitle(RESTAURANT_NAME)}
+      ${thermalMeta("TICKET DE LA JOURNEE")}
+      ${thermalMeta(`Date : ${displayDate}`)}
+      ${vatLine}
+      ${thermalRule()}
+      ${lines}
+      ${thermalRule()}
+      <div style="${THERMAL_TOTAL_STYLE}">Total journalier ${euros(state.daily.totalTtc || 0)}</div>
+    `)
   );
   openPrintWindow(html);
 };
