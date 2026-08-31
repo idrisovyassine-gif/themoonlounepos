@@ -476,61 +476,41 @@ const renderKitchenStatus = () => {
 };
 
 const openPrintWindow = (html, options = {}) => {
-  const existingFrame = document.getElementById("ticket-print-frame");
-  if (existingFrame) existingFrame.remove();
-
-  const frame = document.createElement("iframe");
-  frame.id = "ticket-print-frame";
-  frame.setAttribute("aria-hidden", "true");
-  frame.style.position = "fixed";
-  frame.style.right = "0";
-  frame.style.bottom = "0";
-  frame.style.width = "1px";
-  frame.style.height = "1px";
-  frame.style.opacity = "0";
-  frame.style.border = "0";
-  frame.style.pointerEvents = "none";
-  document.body.appendChild(frame);
-
-  const frameWindow = frame.contentWindow;
-  if (!frameWindow) {
-    frame.remove();
-    alert("Impossible d'ouvrir l'impression");
+  const printRoot = document.getElementById("print-root");
+  if (!printRoot) {
+    alert("Zone d'impression introuvable");
     return;
   }
+
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
+  document.body.classList.add("printing-active");
+  printRoot.getBoundingClientRect();
 
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    frame.remove();
+    document.body.classList.remove("printing-active");
+    printRoot.innerHTML = "";
+    window.removeEventListener("afterprint", cleanup);
   };
 
-  const triggerPrint = () => {
-    setTimeout(() => {
-      try {
-        frameWindow.focus();
-        frameWindow.print();
-        setTimeout(cleanup, options.cleanupDelay || 120000);
-      } catch (error) {
-        console.error(error);
-        cleanup();
-        alert("Impossible de lancer l'impression");
-      }
-    }, options.printDelay || 400);
-  };
+  window.addEventListener("afterprint", cleanup, { once: true });
 
-  frame.onload = triggerPrint;
-  frameWindow.onafterprint = cleanup;
-  frameWindow.document.open();
-  frameWindow.document.write(html);
-  frameWindow.document.close();
-  setTimeout(triggerPrint, options.fallbackDelay || 900);
+  try {
+    window.print();
+    setTimeout(cleanup, options.cleanupDelay || 120000);
+  } catch (error) {
+    console.error(error);
+    cleanup();
+    alert("Impossible de lancer l'impression");
+  }
 };
 
-const THERMAL_BODY_STYLE = "margin:0;padding:0;background:#fff;color:#000;";
-const THERMAL_PRE_STYLE = "margin:0 auto;padding:4mm 3mm 3mm;max-width:52mm;white-space:pre-wrap;word-break:break-word;font:700 13px/1.35 monospace;color:#000;background:#fff;";
-const THERMAL_TEXT_WIDTH = 30;
+const THERMAL_BODY_STYLE = "margin:0;padding:0;width:58mm;background:#fff;color:#000;";
+const THERMAL_PRE_STYLE = "margin:0 auto;padding:2mm 1mm 1mm;width:56mm;white-space:pre-wrap;word-break:break-word;font:800 16px/1.25 monospace;color:#000;background:#fff;";
+const THERMAL_TEXT_WIDTH = 26;
 
 const buildThermalPrintDocument = (title, text) => `<!doctype html>
 <html>
