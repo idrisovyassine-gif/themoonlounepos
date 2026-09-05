@@ -11,6 +11,7 @@
 };
 
 let lastTicket = null;
+let kitchenSendInProgress = false;
 const RESTAURANT_NAME = "The Moon Brussels";
 const OFFERED_CATEGORY_ID = "__offered__";
 
@@ -844,7 +845,13 @@ const printKitchenTicket = (order, kitchenTicket) => {
 };
 
 const sendToKitchen = async () => {
-  if (!state.currentOrder) return;
+  if (!state.currentOrder || kitchenSendInProgress) return;
+  kitchenSendInProgress = true;
+  const kitchenButton = document.getElementById("send-kitchen");
+  if (kitchenButton) {
+    kitchenButton.disabled = true;
+    kitchenButton.textContent = "Envoi cuisine...";
+  }
   try {
     const { order, kitchenTicket } = await api(`/api/orders/${state.currentOrder.id}/send-kitchen`, {
       method: "POST"
@@ -860,6 +867,12 @@ const sendToKitchen = async () => {
   } catch (err) {
     console.error(err);
     alert("Impossible d'envoyer en cuisine");
+  } finally {
+    kitchenSendInProgress = false;
+    if (kitchenButton) {
+      kitchenButton.disabled = false;
+      kitchenButton.textContent = "Envoyer cuisine";
+    }
   }
 };
 
