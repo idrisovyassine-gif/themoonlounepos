@@ -39,6 +39,17 @@ body::after {
   filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.35));
 }
 
+.current-user {
+  display: inline-block;
+  margin: 8px 0 0;
+  padding: 5px 9px;
+  border: 1px solid rgba(247, 181, 0, 0.45);
+  border-radius: 999px;
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .print-root {
   display: none;
 }
@@ -674,6 +685,91 @@ body.printing-active .print-root {
   max-height: 60vh;
   overflow: auto;
   margin-top: 10px;
+}
+
+.staff-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.staff-create-form input,
+.staff-row input {
+  border: 1px solid #c8c8c8;
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.staff-list,
+.staff-report-list {
+  display: grid;
+  gap: 10px;
+  max-height: 58vh;
+  overflow-y: auto;
+}
+
+.staff-row,
+.staff-report-card {
+  border: 1px solid #d7d7d0;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+}
+
+.staff-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(120px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.staff-row > div {
+  display: grid;
+  gap: 3px;
+}
+
+.staff-row span,
+.staff-report-head span,
+.staff-report-label {
+  color: #666;
+  font-size: 12px;
+}
+
+.staff-row button {
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.staff-report-card {
+  display: grid;
+  gap: 8px;
+}
+
+.staff-report-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.staff-report-label {
+  margin: 0;
+  font-weight: 700;
+}
+
+.staff-pointages {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  .staff-create-form,
+  .staff-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .history-item {

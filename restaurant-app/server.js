@@ -35,8 +35,6 @@ loadEnvFile(path.join(__dirname, ".env"));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_PIN = String(process.env.APP_PIN || "121030121030").trim();
-const MANAGER_PIN = String(process.env.MANAGER_PIN || "").trim();
 const AUTH_COOKIE_NAME = "moonlounge_auth";
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
@@ -48,6 +46,60 @@ app.use(express.json());
 const RESTAURANT_NAME = "The Moon Brussels";
 const COMPANY_VAT_NUMBER = (process.env.COMPANY_VAT_NUMBER || "BE 0773 802 850").trim();
 const PUBLIC_DIR = path.join(__dirname, "public");
+const DATA_DIR = path.join(__dirname, "data");
+const STAFF_FILE = path.join(DATA_DIR, "staff.json");
+const POS_STATE_FILE = path.join(DATA_DIR, "pos-state.json");
+
+const hashPin = (pin) => crypto.createHash("sha256").update(String(pin)).digest("hex");
+
+const readJsonFile = (filePath, fallback) => {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    console.error(`Impossible de lire ${path.basename(filePath)}`, error);
+    return fallback;
+  }
+};
+
+const writeJsonFile = (filePath, value) => {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
+};
+
+const normalizeStaffName = (value) => String(value || "").trim().replace(/\s+/g, " ");
+const staffNameKey = (value) => normalizeStaffName(value).toLocaleLowerCase("fr-BE");
+const publicStaff = (staff) => ({ id: staff.id, name: staff.name, role: staff.role });
+
+const initialStaff = () => [
+  {
+    id: "ilyes",
+    name: "Ilyes",
+    role: "manager",
+    pinHash: hashPin("1140"),
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: "celia",
+    name: "Celia",
+    role: "server",
+    pinHash: hashPin("1205"),
+    createdAt: new Date().toISOString()
+  }
+];
+
+const loadStaff = () => {
+  const saved = readJsonFile(STAFF_FILE, null);
+  if (Array.isArray(saved) && saved.some((staff) => staff?.role === "manager")) {
+    return saved.filter((staff) => staff?.id && staff?.name && staff?.pinHash && staff?.role);
+  }
+  const staff = initialStaff();
+  writeJsonFile(STAFF_FILE, staff);
+  return staff;
+};
+
+let staffMembers = loadStaff();
+const saveStaff = () => writeJsonFile(STAFF_FILE, staffMembers);
 
 // Menu complet (ASCII pour compatibilite)
 const menu = [
@@ -242,16 +294,36 @@ const menu = [
   }
 ];
 
-const tables = Array.from({ length: 13 }, (_, idx) => ({
+const createDefaultTables = () => Array.from({ length: 13 }, (_, idx) => ({
   id: idx + 1,
   status: "free",
   orderId: null
 }));
 
-const orders = new Map();
-const settledTickets = [];
-const paymentHistory = [];
-const ticketCountersByDate = new Map();
+const savedPosState = readJsonFile(POS_STATE_FILE, {});
+const tables =
+  Array.isArray(savedPosState.tables) && savedPosState.tables.length === 13
+    ? savedPosState.tables
+    : createDefaultTables();
+const orders = new Map(
+  Array.isArray(savedPosState.orders)
+    ? savedPosState.orders.filter((order) => order?.id).map((order) => [order.id, order])
+    : []
+);
+const settledTickets = Array.isArray(savedPosState.settledTickets) ? savedPosState.settledTickets : [];
+const paymentHistory = Array.isArray(savedPosState.paymentHistory) ? savedPosState.paymentHistory : [];
+const ticketCountersByDate = new Map(
+  Object.entries(savedPosState.ticketCountersByDate || {}).map(([date, count]) => [date, Number(count) || 0])
+);
+
+const savePosState = () =>
+  writeJsonFile(POS_STATE_FILE, {
+    tables,
+    orders: Array.from(orders.values()),
+    settledTickets,
+    paymentHistory,
+    ticketCountersByDate: Object.fromEntries(ticketCountersByDate)
+  });
 
 const computeTotal = (items = []) =>
   items.reduce((acc, item) => acc + item.price * item.qty, 0);
@@ -385,6 +457,39 @@ const sanitizeHistoryItems = (items = []) => {
     .filter(Boolean);
 };
 
+const makeAuditEvent = (user, type, details = {}) => ({
+  type,
+  at: new Date().toISOString(),
+  userId: user?.id || null,
+  userName: user?.name || "Inconnu",
+  ...details
+});
+
+const recordItemChanges = (order, previousItems, nextItems, user) => {
+  const previousQty = new Map((previousItems || []).map((item) => [item.id, Number(item.qty) || 0]));
+  const nextQty = new Map((nextItems || []).map((item) => [item.id, Number(item.qty) || 0]));
+  const events = [];
+
+  (nextItems || []).forEach((item) => {
+    const delta = (Number(item.qty) || 0) - (previousQty.get(item.id) || 0);
+    if (delta > 0) {
+      events.push(makeAuditEvent(user, "ajout", {
+        items: [{ id: item.id, name: item.name, qty: delta, price: item.price }]
+      }));
+    }
+  });
+  (previousItems || []).forEach((item) => {
+    const delta = (Number(item.qty) || 0) - (nextQty.get(item.id) || 0);
+    if (delta > 0) {
+      events.push(makeAuditEvent(user, "retrait", {
+        items: [{ id: item.id, name: item.name, qty: delta, price: item.price }]
+      }));
+    }
+  });
+
+  order.activity = [...(order.activity || []), ...events];
+};
+
 const createPaymentEntry = (ticket) => ({
   id: `pay-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
   ticketNumber: ticket.ticketNumber,
@@ -400,12 +505,15 @@ const createPaymentEntry = (ticket) => ({
   paidCard: ticket.paidCard,
   changeDue: ticket.changeDue,
   paymentMethod: ticket.paymentMethod,
+  openedBy: ticket.openedBy || null,
+  paidBy: ticket.paidBy || null,
+  activity: ticket.activity || [],
   status: "active",
   includeInDaily: true,
   updatedAt: null
 });
 
-const createOrder = (tableId) => {
+const createOrder = (tableId, user) => {
   const id = `${Date.now()}-${tableId}-${Math.floor(Math.random() * 9999)}`;
   const order = {
     id,
@@ -415,6 +523,9 @@ const createOrder = (tableId) => {
     sentToKitchen: false,
     kitchenSentItems: [],
     kitchenSendCount: 0,
+    openedBy: publicStaff(user),
+    lastUpdatedBy: publicStaff(user),
+    activity: [makeAuditEvent(user, "ouverture-table")],
     createdAt: new Date().toISOString()
   };
   orders.set(id, order);
@@ -463,6 +574,9 @@ const buildTicketPdfBuffer = (ticket) =>
     });
     doc.text(`Date: ${formatTicketDateTime(ticket.date)}`, { align: "center" });
     doc.text(`Table: ${ticket.table}`, { align: "center" });
+    if (ticket.paidBy?.name) {
+      doc.text(`Serveur: ${ticket.paidBy.name}`, { align: "center" });
+    }
     doc.text(`Paiement: ${paymentMethodLabel(ticket.paymentMethod)}`, { align: "center" });
     if (ticket.vatNumber) {
       doc.text(`TVA: ${ticket.vatNumber}`, { align: "center" });
@@ -608,9 +722,9 @@ const parseCookies = (cookieHeader = "") =>
       return acc;
     }, {});
 
-const createAuthSession = () => {
+const createAuthSession = (staff) => {
   const token = crypto.randomBytes(32).toString("hex");
-  authSessions.set(token, { createdAt: Date.now() });
+  authSessions.set(token, { createdAt: Date.now(), user: publicStaff(staff) });
   return token;
 };
 
@@ -619,7 +733,16 @@ const getAuthToken = (req) => {
   return cookies[AUTH_COOKIE_NAME] || "";
 };
 
-const isAuthenticated = (req) => authSessions.has(getAuthToken(req));
+const getAuthenticatedUser = (req) => authSessions.get(getAuthToken(req))?.user || null;
+const isAuthenticated = (req) => Boolean(getAuthenticatedUser(req));
+const isManager = (req) => getAuthenticatedUser(req)?.role === "manager";
+
+const requireManager = (req, res, next) => {
+  if (!isManager(req)) {
+    return res.status(403).json({ error: "Acces gerant requis" });
+  }
+  return next();
+};
 
 const setAuthCookie = (res, token) => {
   const parts = [
@@ -656,17 +779,20 @@ app.get("/login", (req, res) => {
 });
 
 app.get("/api/auth/status", (req, res) => {
-  res.json({ authenticated: isAuthenticated(req) });
+  const user = getAuthenticatedUser(req);
+  res.json({ authenticated: Boolean(user), user });
 });
 
 app.post("/api/auth/login", (req, res) => {
+  const name = normalizeStaffName(req.body?.name);
   const pin = String(req.body?.pin || "").trim();
-  if (!pin || pin !== APP_PIN) {
-    return res.status(401).json({ error: "Code PIN invalide" });
+  const staff = staffMembers.find((member) => staffNameKey(member.name) === staffNameKey(name));
+  if (!staff || !pin || hashPin(pin) !== staff.pinHash) {
+    return res.status(401).json({ error: "Identifiants invalides" });
   }
-  const token = createAuthSession();
+  const token = createAuthSession(staff);
   setAuthCookie(res, token);
-  return res.json({ authenticated: true });
+  return res.json({ authenticated: true, user: publicStaff(staff) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -697,15 +823,42 @@ app.use((req, res, next) => {
 
 app.use(express.static(PUBLIC_DIR));
 
-app.post("/api/auth/manager-pin", (req, res) => {
-  if (!MANAGER_PIN) {
-    return res.status(503).json({ error: "Code gerant non configure" });
-  }
+app.get("/api/staff", requireManager, (_req, res) => {
+  res.json(staffMembers.map(publicStaff));
+});
+
+app.post("/api/staff", requireManager, (req, res) => {
+  const name = normalizeStaffName(req.body?.name);
   const pin = String(req.body?.pin || "").trim();
-  if (!pin || pin !== MANAGER_PIN) {
-    return res.status(403).json({ error: "Code gerant invalide" });
+  if (name.length < 2 || !/^\d{4,}$/.test(pin)) {
+    return res.status(400).json({ error: "Nom et PIN numerique de 4 chiffres minimum requis" });
   }
-  return res.json({ authorized: true });
+  if (staffMembers.some((staff) => staffNameKey(staff.name) === staffNameKey(name))) {
+    return res.status(409).json({ error: "Ce serveur existe deja" });
+  }
+  const staff = {
+    id: `staff-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+    name,
+    role: "server",
+    pinHash: hashPin(pin),
+    createdAt: new Date().toISOString()
+  };
+  staffMembers.push(staff);
+  saveStaff();
+  return res.status(201).json(publicStaff(staff));
+});
+
+app.put("/api/staff/:id", requireManager, (req, res) => {
+  const staff = staffMembers.find((member) => member.id === req.params.id);
+  if (!staff) return res.status(404).json({ error: "Serveur introuvable" });
+  const pin = String(req.body?.pin || "").trim();
+  if (!/^\d{4,}$/.test(pin)) {
+    return res.status(400).json({ error: "PIN numerique de 4 chiffres minimum requis" });
+  }
+  staff.pinHash = hashPin(pin);
+  staff.updatedAt = new Date().toISOString();
+  saveStaff();
+  return res.json(publicStaff(staff));
 });
 
 app.get("/api/menu", (_req, res) => {
@@ -717,19 +870,21 @@ app.get("/api/tables", (_req, res) => {
 });
 
 app.post("/api/tables/:id/open", (req, res) => {
+  const user = getAuthenticatedUser(req);
   const tableId = Number(req.params.id);
   const table = findTable(tableId);
   if (!table) {
     return res.status(404).json({ error: "Table introuvable" });
   }
   if (!table.orderId) {
-    const order = createOrder(tableId);
+    const order = createOrder(tableId, user);
     table.orderId = order.id;
     table.status = "occupied";
   } else if (table.status === "free") {
     table.status = "occupied";
   }
   const order = orders.get(table.orderId);
+  savePosState();
   return res.json({ table, order });
 });
 
@@ -747,8 +902,14 @@ app.put("/api/orders/:id", (req, res) => {
     return res.status(404).json({ error: "Commande introuvable" });
   }
   const { items = [] } = req.body || {};
-  order.items = Array.isArray(items) ? items : order.items;
+  const previousItems = snapshotOrderItems(order.items);
+  const nextItems = Array.isArray(items) ? items : order.items;
+  order.items = nextItems;
+  const user = getAuthenticatedUser(req);
+  recordItemChanges(order, previousItems, nextItems, user);
+  order.lastUpdatedBy = publicStaff(user);
   order.total = computeTotal(order.items);
+  savePosState();
   res.json(order);
 });
 
@@ -761,12 +922,18 @@ app.post("/api/orders/:id/send-kitchen", (req, res) => {
   const items = getKitchenItemsToSend(order);
   order.sentToKitchen = true;
   if (!items.length) {
+    savePosState();
     return res.json({ order, kitchenTicket: null });
   }
 
   const isFirstSend = order.kitchenSendCount === 0;
   order.kitchenSentItems = snapshotOrderItems(order.items);
   order.kitchenSendCount += 1;
+  order.activity = [
+    ...(order.activity || []),
+    makeAuditEvent(getAuthenticatedUser(req), "envoi-cuisine", { items: snapshotOrderItems(items) })
+  ];
+  savePosState();
 
   res.json({
     order,
@@ -787,6 +954,8 @@ app.post("/api/orders/:id/mark-to-pay", (req, res) => {
   const table = findTable(order.tableId);
   table.status = "to_pay";
   order.status = "to_pay";
+  order.activity = [...(order.activity || []), makeAuditEvent(getAuthenticatedUser(req), "a-payer")];
+  savePosState();
   res.json({ table, order });
 });
 
@@ -837,6 +1006,12 @@ app.post("/api/orders/:id/settle", async (req, res) => {
     paidCash,
     paidCard,
     changeDue,
+    openedBy: order.openedBy || null,
+    paidBy: publicStaff(getAuthenticatedUser(req)),
+    activity: [
+      ...(order.activity || []),
+      makeAuditEvent(getAuthenticatedUser(req), "paiement", { total: totalTtc })
+    ],
     date: ticketDate
   };
   settledTickets.push(ticket);
@@ -845,6 +1020,7 @@ app.post("/api/orders/:id/settle", async (req, res) => {
   table.orderId = null;
   order.status = "settled";
   orders.delete(order.id);
+  savePosState();
   try {
     await sendTelegramTicket(ticket);
   } catch (error) {
@@ -853,7 +1029,7 @@ app.post("/api/orders/:id/settle", async (req, res) => {
   res.json(ticket);
 });
 
-app.get("/api/reports/daily", (_req, res) => {
+app.get("/api/reports/daily", requireManager, (_req, res) => {
   const queryDate = getDateKey(_req.query.date);
   const todayKey = new Date().toISOString().slice(0, 10);
   const targetKey = queryDate || todayKey;
@@ -887,7 +1063,7 @@ app.get("/api/reports/daily", (_req, res) => {
   });
 });
 
-app.post("/api/reports/daily/send", async (req, res) => {
+app.post("/api/reports/daily/send", requireManager, async (req, res) => {
   const queryDate = getDateKey(req.body?.date);
   const todayKey = new Date().toISOString().slice(0, 10);
   const targetKey = queryDate || todayKey;
@@ -930,7 +1106,48 @@ app.post("/api/reports/daily/send", async (req, res) => {
   }
 });
 
-app.get("/api/payments/history", (req, res) => {
+app.get("/api/reports/staff", requireManager, (req, res) => {
+  const queryDate = getDateKey(req.query.date);
+  const targetKey = queryDate || new Date().toISOString().slice(0, 10);
+  const tickets = paymentHistory.filter((entry) => {
+    if (new Date(entry.date).toISOString().slice(0, 10) !== targetKey) return false;
+    return entry.status === "active" || (entry.status === "edited" && entry.includeInDaily);
+  });
+
+  const reports = staffMembers.map((staff) => {
+    const staffTickets = tickets.filter((ticket) => ticket.paidBy?.id === staff.id);
+    const pointages = tickets.flatMap((ticket) =>
+      (ticket.activity || []).filter((event) => event.userId === staff.id && event.type === "ajout")
+    );
+    const items = {};
+    pointages.forEach((event) => {
+      (event.items || []).forEach((item) => {
+        const entry = items[item.name] || { name: item.name, qty: 0 };
+        entry.qty += Number(item.qty) || 0;
+        items[item.name] = entry;
+      });
+    });
+
+    return {
+      staff: publicStaff(staff),
+      ticketCount: staffTickets.length,
+      totalTtc: staffTickets.reduce((sum, ticket) => sum + (ticket.totalTtc || 0), 0),
+      totalCash: staffTickets.reduce((sum, ticket) => sum + (ticket.totalCash || 0), 0),
+      totalCard: staffTickets.reduce((sum, ticket) => sum + (ticket.totalCard || 0), 0),
+      tickets: staffTickets.map((ticket) => ({
+        ticketNumber: ticket.ticketNumber,
+        table: ticket.table,
+        date: ticket.date,
+        totalTtc: ticket.totalTtc
+      })),
+      pointages: Object.values(items)
+    };
+  });
+
+  res.json({ date: targetKey, reports });
+});
+
+app.get("/api/payments/history", requireManager, (req, res) => {
   const queryDate = getDateKey(req.query.date);
   const list = queryDate
     ? paymentHistory.filter((p) => new Date(p.date).toISOString().slice(0, 10) === queryDate)
@@ -940,7 +1157,7 @@ app.get("/api/payments/history", (req, res) => {
   );
 });
 
-app.put("/api/payments/history/:id", (req, res) => {
+app.put("/api/payments/history/:id", requireManager, (req, res) => {
   const entry = paymentHistory.find((p) => p.id === req.params.id);
   if (!entry) return res.status(404).json({ error: "Paiement introuvable" });
   const hasCash = Object.prototype.hasOwnProperty.call(req.body || {}, "cash");
@@ -980,14 +1197,18 @@ app.put("/api/payments/history/:id", (req, res) => {
     }
   }
   entry.updatedAt = new Date().toISOString();
+  entry.updatedBy = publicStaff(getAuthenticatedUser(req));
+  savePosState();
   res.json(entry);
 });
 
-app.delete("/api/payments/history/:id", (req, res) => {
+app.delete("/api/payments/history/:id", requireManager, (req, res) => {
   const entry = paymentHistory.find((p) => p.id === req.params.id);
   if (!entry) return res.status(404).json({ error: "Paiement introuvable" });
   entry.status = "deleted";
   entry.updatedAt = new Date().toISOString();
+  entry.updatedBy = publicStaff(getAuthenticatedUser(req));
+  savePosState();
   res.json(entry);
 });
 

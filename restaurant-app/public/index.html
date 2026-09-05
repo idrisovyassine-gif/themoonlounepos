@@ -15,12 +15,15 @@
       <div>
         <p class="eyebrow">Service en salle</p>
         <h1>The Moon Brussels</h1>
+        <p id="current-user" class="current-user"></p>
       </div>
     </div>
     <div class="top-actions">
-      <button id="manager-total-ticket" class="ghost-btn">Ticket total</button>
-      <button id="payment-history" class="ghost-btn">Historique paiements</button>
-      <button id="daily-report" class="ghost-btn">Ticket journalier</button>
+      <button id="manager-total-ticket" class="ghost-btn manager-only hidden">Ticket total</button>
+      <button id="payment-history" class="ghost-btn manager-only hidden">Historique paiements</button>
+      <button id="daily-report" class="ghost-btn manager-only hidden">Ticket journalier</button>
+      <button id="staff-report" class="ghost-btn manager-only hidden">Suivi serveurs</button>
+      <button id="staff-management" class="ghost-btn manager-only hidden">Personnel</button>
       <button id="refresh-tables" class="ghost-btn">Actualiser</button>
       <button id="lock-app" class="ghost-btn">Verrouiller</button>
       <button id="fullscreen-btn" class="ghost-btn">Plein ecran</button>
@@ -121,24 +124,6 @@
     </div>
   </div>
 
-  <div id="manager-pin-modal" class="ticket-modal hidden">
-    <div class="ticket-card option-card">
-      <div class="ticket-head">
-        <h3>Ticket total</h3>
-        <p>Code gerant requis pour imprimer.</p>
-      </div>
-      <div class="payment-form">
-        <label for="manager-pin-input">Code gerant</label>
-        <input id="manager-pin-input" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" />
-        <p id="manager-pin-error" class="payment-total-hint hidden"></p>
-      </div>
-      <div class="ticket-footer">
-        <button id="manager-pin-confirm" class="pill-btn primary" type="button">Valider</button>
-        <button id="manager-pin-cancel" class="ghost-btn" type="button">Annuler</button>
-      </div>
-    </div>
-  </div>
-
   <div id="payment-modal" class="ticket-modal hidden">
     <div class="ticket-card">
       <div class="ticket-head">
@@ -214,9 +199,40 @@
     </div>
   </div>
 
+  <div id="staff-modal" class="ticket-modal hidden">
+    <div class="ticket-card history-card">
+      <div class="ticket-head">
+        <h3>Gestion du personnel</h3>
+        <p class="ticket-vat">Ajoute un serveur ou modifie son code PIN.</p>
+      </div>
+      <form id="staff-create-form" class="staff-create-form">
+        <input id="staff-create-name" type="text" placeholder="Nom du serveur" required />
+        <input id="staff-create-pin" type="password" inputmode="numeric" placeholder="Nouveau PIN" minlength="4" required />
+        <button class="pill-btn primary" type="submit">Ajouter</button>
+      </form>
+      <div id="staff-list" class="staff-list"></div>
+      <div class="ticket-footer">
+        <button id="close-staff" class="ghost-btn" type="button">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="staff-report-modal" class="ticket-modal hidden">
+    <div class="ticket-card history-card">
+      <div class="ticket-head">
+        <h3>Suivi des serveurs</h3>
+        <p id="staff-report-date" class="ticket-vat"></p>
+      </div>
+      <div id="staff-report-list" class="staff-report-list"></div>
+      <div class="ticket-footer">
+        <button id="close-staff-report" class="ghost-btn" type="button">Fermer</button>
+      </div>
+    </div>
+  </div>
+
   <div id="print-root" class="print-root" aria-hidden="true"></div>
 
-  <script src="/app.js?v=27" defer></script>
+  <script src="/app.js?v=28" defer></script>
 </body>
 </html>
 

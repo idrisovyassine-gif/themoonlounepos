@@ -136,11 +136,13 @@
   <section class="login-shell">
     <p class="eyebrow">Acces securise</p>
     <h1>The Moon Brussels</h1>
-    <p class="subtitle">Entrez le code PIN pour ouvrir l'application de caisse.</p>
+    <p class="subtitle">Entrez votre nom et votre code PIN pour ouvrir l'application de caisse.</p>
 
     <form id="login-form">
+      <label for="name">Nom</label>
+      <input id="name" name="name" type="text" autocomplete="username" required autofocus>
       <label for="pin">Code PIN</label>
-      <input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required autofocus>
+      <input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
       <button type="submit">Entrer</button>
       <p id="login-hint" class="hint"></p>
     </form>
@@ -150,6 +152,7 @@
 
   <script>
     const form = document.getElementById("login-form");
+    const nameInput = document.getElementById("name");
     const pinInput = document.getElementById("pin");
     const hint = document.getElementById("login-hint");
 
@@ -166,11 +169,11 @@
         const res = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pin: pinInput.value })
+          body: JSON.stringify({ name: nameInput.value, pin: pinInput.value })
         });
 
         if (!res.ok) {
-          setHint("Code PIN incorrect.", true);
+          setHint("Nom ou code PIN incorrect.", true);
           pinInput.select();
           return;
         }

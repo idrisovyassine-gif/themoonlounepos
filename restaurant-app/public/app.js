@@ -7,12 +7,12 @@
   saving: false,
   daily: null,
   offeredCategory: null,
+  user: null,
   paymentMethod: "card"
 };
 
 let lastTicket = null;
 let kitchenSendInProgress = false;
-let managerPrintAction = null;
 const RESTAURANT_NAME = "The Moon Brussels";
 const OFFERED_CATEGORY_ID = "__offered__";
 
@@ -40,11 +40,20 @@ const dailyVat = document.getElementById("daily-vat");
 const dailyLines = document.getElementById("daily-lines");
 const dailyTotal = document.getElementById("daily-total");
 const managerTotalTicketBtn = document.getElementById("manager-total-ticket");
-const managerPinModal = document.getElementById("manager-pin-modal");
-const managerPinInput = document.getElementById("manager-pin-input");
-const managerPinError = document.getElementById("manager-pin-error");
-const managerPinConfirmBtn = document.getElementById("manager-pin-confirm");
-const managerPinCancelBtn = document.getElementById("manager-pin-cancel");
+const currentUserEl = document.getElementById("current-user");
+const managerOnlyEls = document.querySelectorAll(".manager-only");
+const staffManagementBtn = document.getElementById("staff-management");
+const staffReportBtn = document.getElementById("staff-report");
+const staffModal = document.getElementById("staff-modal");
+const staffCreateForm = document.getElementById("staff-create-form");
+const staffCreateName = document.getElementById("staff-create-name");
+const staffCreatePin = document.getElementById("staff-create-pin");
+const staffList = document.getElementById("staff-list");
+const closeStaffBtn = document.getElementById("close-staff");
+const staffReportModal = document.getElementById("staff-report-modal");
+const staffReportDate = document.getElementById("staff-report-date");
+const staffReportList = document.getElementById("staff-report-list");
+const closeStaffReportBtn = document.getElementById("close-staff-report");
 const shishaHeadSelect = document.getElementById("shisha-head");
 const paymentModal = document.getElementById("payment-modal");
 const confirmPaymentBtn = document.getElementById("confirm-payment");
@@ -925,6 +934,7 @@ const printReceiptTicket = () => {
     `Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}`,
     `Table ${lastTicket.table}`,
     `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
+    lastTicket.paidBy?.name ? `Serveur: ${lastTicket.paidBy.name}` : null,
     methodLabel,
     hasVatNumber(lastTicket.vatNumber) ? `TVA: ${lastTicket.vatNumber}` : null,
     thermalSeparator(),
@@ -965,74 +975,16 @@ const printDailyTicketNow = () => {
   openPrintWindow(html);
 };
 
-const closeManagerPinModal = () => {
-  managerPrintAction = null;
-  if (managerPinModal) managerPinModal.classList.add("hidden");
-  if (managerPinInput) managerPinInput.value = "";
-  if (managerPinError) {
-    managerPinError.textContent = "";
-    managerPinError.classList.add("hidden");
-  }
-};
-
-const requestManagerPrint = (action) => {
-  if (!managerPinModal || !managerPinInput) {
-    alert("Code gerant indisponible");
-    return;
-  }
-  managerPrintAction = action;
-  managerPinInput.value = "";
-  if (managerPinError) {
-    managerPinError.textContent = "";
-    managerPinError.classList.add("hidden");
-  }
-  managerPinModal.classList.remove("hidden");
-  setTimeout(() => managerPinInput.focus(), 0);
-};
-
-const confirmManagerPrint = async () => {
-  const pin = managerPinInput?.value.trim() || "";
-  if (!pin) return;
+const printManagerTotalTicket = async () => {
+  if (state.user?.role !== "manager") return;
   try {
-    await api("/api/auth/manager-pin", {
-      method: "POST",
-      body: JSON.stringify({ pin })
-    });
-    const action = managerPrintAction;
-    closeManagerPinModal();
-    if (action) await action();
+    const report = await api("/api/reports/daily");
+    state.daily = report;
+    printDailyTicketNow();
   } catch (err) {
     console.error(err);
-    if (managerPinError) {
-      managerPinError.textContent = "Code gerant incorrect";
-      managerPinError.classList.remove("hidden");
-    }
-    if (managerPinInput) {
-      managerPinInput.value = "";
-      managerPinInput.focus();
-    }
+    alert("Impossible de charger le ticket total");
   }
-};
-
-const requestDailyTicketPrint = () => {
-  if (!state.daily) {
-    alert("Pas de ticket journalier");
-    return;
-  }
-  requestManagerPrint(() => printDailyTicketNow());
-};
-
-const printManagerTotalTicket = () => {
-  requestManagerPrint(async () => {
-    try {
-      const report = await api("/api/reports/daily");
-      state.daily = report;
-      printDailyTicketNow();
-    } catch (err) {
-      console.error(err);
-      alert("Impossible de charger le ticket total");
-    }
-  });
 };
 
 const openTable = async (tableId) => {
@@ -1122,7 +1074,8 @@ const showTicket = (ticket) => {
     ticketVat.textContent = hasVatNumber(ticket.vatNumber) ? `TVA: ${ticket.vatNumber}` : "";
   }
   const methodLabel = paymentMethodLabel(ticket.paymentMethod);
-  ticketMeta.textContent = `Ticket N ${formatTicketNumber(ticket.ticketNumber)}  -  Table ${ticket.table}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}`;
+  const serverLabel = ticket.paidBy?.name ? `  -  Serveur: ${ticket.paidBy.name}` : "";
+  ticketMeta.textContent = `Ticket N ${formatTicketNumber(ticket.ticketNumber)}  -  Table ${ticket.table}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}${serverLabel}`;
   ticketLines.innerHTML = "";
   ticket.items.forEach((line) => {
     const row = document.createElement("div");
@@ -1372,6 +1325,8 @@ const renderPaymentHistory = (list) => {
       <div class="history-meta">
         <span>Cash: ${euros(entry.totalCash || 0)}</span>
         <span>Carte: ${euros(entry.totalCard || 0)}</span>
+        <span>Encaisse par: ${escapeHtml(entry.paidBy?.name || "Non renseigne")}</span>
+        <span>Table ouverte par: ${escapeHtml(entry.openedBy?.name || "Non renseigne")}</span>
         <span class="history-status">Statut: ${paymentStatusLabel(entry.status)}</span>
       </div>
       <label class="history-toggle">
@@ -1503,6 +1458,155 @@ const hideHistoryModal = () => {
   historyModal.classList.add("hidden");
 };
 
+const isManagerUser = () => state.user?.role === "manager";
+
+const updateUserInterface = () => {
+  if (currentUserEl) {
+    const role = isManagerUser() ? "Gerant" : "Serveur";
+    currentUserEl.textContent = state.user ? `${state.user.name} - ${role}` : "";
+  }
+  managerOnlyEls.forEach((element) => element.classList.toggle("hidden", !isManagerUser()));
+};
+
+const hideStaffModal = () => {
+  if (staffModal) staffModal.classList.add("hidden");
+};
+
+const renderStaffList = (staff) => {
+  if (!staffList) return;
+  staffList.innerHTML = "";
+  staff.forEach((member) => {
+    const row = document.createElement("div");
+    row.className = "staff-row";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(member.name)}</strong>
+        <span>${member.role === "manager" ? "Gerant" : "Serveur"}</span>
+      </div>
+      <input type="password" inputmode="numeric" minlength="4" placeholder="Nouveau PIN" />
+      <button class="ghost-btn" type="button">Modifier PIN</button>
+    `;
+    const pinInput = row.querySelector("input");
+    row.querySelector("button").addEventListener("click", async () => {
+      const pin = pinInput.value.trim();
+      if (pin.length < 4) {
+        alert("Le PIN doit contenir au moins 4 chiffres");
+        return;
+      }
+      try {
+        await api(`/api/staff/${member.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ pin })
+        });
+        pinInput.value = "";
+        alert(`PIN de ${member.name} modifie`);
+      } catch (err) {
+        console.error(err);
+        alert("Impossible de modifier le PIN");
+      }
+    });
+    staffList.appendChild(row);
+  });
+};
+
+const openStaffModal = async () => {
+  if (!isManagerUser() || !staffModal) return;
+  try {
+    const staff = await api("/api/staff");
+    renderStaffList(staff);
+    staffModal.classList.remove("hidden");
+  } catch (err) {
+    console.error(err);
+    alert("Impossible de charger le personnel");
+  }
+};
+
+const createStaff = async (event) => {
+  event.preventDefault();
+  const name = staffCreateName?.value.trim() || "";
+  const pin = staffCreatePin?.value.trim() || "";
+  try {
+    await api("/api/staff", {
+      method: "POST",
+      body: JSON.stringify({ name, pin })
+    });
+    if (staffCreateName) staffCreateName.value = "";
+    if (staffCreatePin) staffCreatePin.value = "";
+    await openStaffModal();
+  } catch (err) {
+    console.error(err);
+    alert("Impossible d'ajouter ce serveur. Verifie le nom et le PIN.");
+  }
+};
+
+const hideStaffReportModal = () => {
+  if (staffReportModal) staffReportModal.classList.add("hidden");
+};
+
+const printStaffReport = (report, date) => {
+  const payments = (report.tickets || []).map((ticket) =>
+    thermalLine(`Table ${ticket.table} - Ticket ${formatTicketNumber(ticket.ticketNumber)}`, euros(ticket.totalTtc || 0))
+  );
+  const pointages = (report.pointages || []).map((item) => `${item.qty} x ${item.name}`);
+  const text = joinThermalLines(
+    RESTAURANT_NAME,
+    `TICKET SERVEUR - ${report.staff.name}`,
+    `Date: ${date}`,
+    thermalSeparator(),
+    "Encaissements",
+    payments.length ? payments : "Aucun paiement",
+    thermalSeparator(),
+    thermalLine("Cash", euros(report.totalCash || 0)),
+    thermalLine("Carte", euros(report.totalCard || 0)),
+    thermalLine("Total", euros(report.totalTtc || 0)),
+    thermalSeparator(),
+    "Articles pointes",
+    pointages.length ? pointages : "Aucun article pointe"
+  );
+  openPrintWindow(buildThermalPrintDocument(`Ticket ${report.staff.name}`, text));
+};
+
+const renderStaffReports = (data) => {
+  if (!staffReportList) return;
+  staffReportList.innerHTML = "";
+  if (staffReportDate) staffReportDate.textContent = `Date : ${data.date}`;
+  (data.reports || []).forEach((report) => {
+    const card = document.createElement("div");
+    card.className = "staff-report-card";
+    const pointages = (report.pointages || [])
+      .map((item) => `<li>${item.qty} x ${escapeHtml(item.name)}</li>`)
+      .join("") || "<li>Aucun article pointe</li>";
+    card.innerHTML = `
+      <div class="staff-report-head">
+        <strong>${escapeHtml(report.staff.name)}</strong>
+        <span>${report.ticketCount} paiement(s)</span>
+      </div>
+      <div class="history-meta">
+        <span>Cash: ${euros(report.totalCash || 0)}</span>
+        <span>Carte: ${euros(report.totalCard || 0)}</span>
+        <span>Total: ${euros(report.totalTtc || 0)}</span>
+      </div>
+      <p class="staff-report-label">Articles pointes</p>
+      <ul class="staff-pointages">${pointages}</ul>
+      <button class="pill-btn primary" type="button">Imprimer le ticket</button>
+    `;
+    card.querySelector("button").addEventListener("click", () => printStaffReport(report, data.date));
+    staffReportList.appendChild(card);
+  });
+};
+
+const openStaffReportModal = async () => {
+  if (!isManagerUser() || !staffReportModal) return;
+  try {
+    const report = await api("/api/reports/staff");
+    renderStaffReports(report);
+    staffReportModal.classList.remove("hidden");
+  } catch (err) {
+    console.error(err);
+    alert("Impossible de charger le suivi des serveurs");
+  }
+};
+
 const lockApp = async () => {
   try {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -1527,15 +1631,13 @@ const registerEvents = () => {
   document.getElementById("print-ticket").addEventListener("click", printReceiptTicket);
   document.getElementById("daily-report").addEventListener("click", loadDailyReport);
   document.getElementById("close-daily").addEventListener("click", hideDaily);
-  document.getElementById("print-daily").addEventListener("click", requestDailyTicketPrint);
+  document.getElementById("print-daily").addEventListener("click", printDailyTicketNow);
   if (managerTotalTicketBtn) managerTotalTicketBtn.addEventListener("click", printManagerTotalTicket);
-  if (managerPinConfirmBtn) managerPinConfirmBtn.addEventListener("click", confirmManagerPrint);
-  if (managerPinCancelBtn) managerPinCancelBtn.addEventListener("click", closeManagerPinModal);
-  if (managerPinInput) {
-    managerPinInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") confirmManagerPrint();
-    });
-  }
+  if (staffManagementBtn) staffManagementBtn.addEventListener("click", openStaffModal);
+  if (staffReportBtn) staffReportBtn.addEventListener("click", openStaffReportModal);
+  if (closeStaffBtn) closeStaffBtn.addEventListener("click", hideStaffModal);
+  if (closeStaffReportBtn) closeStaffReportBtn.addEventListener("click", hideStaffReportModal);
+  if (staffCreateForm) staffCreateForm.addEventListener("submit", createStaff);
   if (lockAppBtn) lockAppBtn.addEventListener("click", lockApp);
   if (historyBtn) historyBtn.addEventListener("click", openHistoryModal);
   if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", hideHistoryModal);
@@ -1568,14 +1670,26 @@ const registerServiceWorker = () => {
 };
 
 const init = async () => {
-  registerEvents();
-  registerServiceWorker();
-  state.menu = await api("/api/menu");
-  state.activeCategory = state.menu[0]?.id;
-  state.paymentMethod = "card";
-  renderCategories();
-  renderItems();
-  await refreshTables();
+  try {
+    const auth = await api("/api/auth/status");
+    if (!auth.authenticated || !auth.user) {
+      redirectToLogin();
+      return;
+    }
+    state.user = auth.user;
+    updateUserInterface();
+    registerEvents();
+    registerServiceWorker();
+    state.menu = await api("/api/menu");
+    state.activeCategory = state.menu[0]?.id;
+    state.paymentMethod = "card";
+    renderCategories();
+    renderItems();
+    await refreshTables();
+  } catch (err) {
+    console.error(err);
+    redirectToLogin();
+  }
 };
 
 document.addEventListener("DOMContentLoaded", init);
