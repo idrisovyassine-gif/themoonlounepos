@@ -74,7 +74,7 @@ const publicStaff = (staff) => ({ id: staff.id, name: staff.name, role: staff.ro
 const initialStaff = () => [
   {
     id: "ilyes",
-    name: "Ilyes",
+    name: "Ilias",
     role: "manager",
     pinHash: hashPin("1140"),
     createdAt: new Date().toISOString()
@@ -91,7 +91,13 @@ const initialStaff = () => [
 const loadStaff = () => {
   const saved = readJsonFile(STAFF_FILE, null);
   if (Array.isArray(saved) && saved.some((staff) => staff?.role === "manager")) {
-    return saved.filter((staff) => staff?.id && staff?.name && staff?.pinHash && staff?.role);
+    const staff = saved.filter((member) => member?.id && member?.name && member?.pinHash && member?.role);
+    const manager = staff.find((member) => member.id === "ilyes" && member.role === "manager");
+    if (manager?.name === "Ilyes") {
+      manager.name = "Ilias";
+      writeJsonFile(STAFF_FILE, staff);
+    }
+    return staff;
   }
   const staff = initialStaff();
   writeJsonFile(STAFF_FILE, staff);
