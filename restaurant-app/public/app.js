@@ -12,6 +12,7 @@
 
 let lastTicket = null;
 let kitchenSendInProgress = false;
+let managerPrintAction = null;
 const RESTAURANT_NAME = "The Moon Brussels";
 const OFFERED_CATEGORY_ID = "__offered__";
 
@@ -38,6 +39,12 @@ const dailyDate = document.getElementById("daily-date");
 const dailyVat = document.getElementById("daily-vat");
 const dailyLines = document.getElementById("daily-lines");
 const dailyTotal = document.getElementById("daily-total");
+const managerTotalTicketBtn = document.getElementById("manager-total-ticket");
+const managerPinModal = document.getElementById("manager-pin-modal");
+const managerPinInput = document.getElementById("manager-pin-input");
+const managerPinError = document.getElementById("manager-pin-error");
+const managerPinConfirmBtn = document.getElementById("manager-pin-confirm");
+const managerPinCancelBtn = document.getElementById("manager-pin-cancel");
 const shishaHeadSelect = document.getElementById("shisha-head");
 const paymentModal = document.getElementById("payment-modal");
 const confirmPaymentBtn = document.getElementById("confirm-payment");
@@ -933,7 +940,7 @@ const printReceiptTicket = () => {
   openPrintWindow(html);
 };
 
-const printDailyTicket = () => {
+const printDailyTicketNow = () => {
   if (!state.daily) {
     alert("Pas de ticket journalier");
     return;
@@ -956,6 +963,76 @@ const printDailyTicket = () => {
 
   const html = buildThermalPrintDocument(`${RESTAURANT_NAME} - TICKET DE LA JOURNEE`, text);
   openPrintWindow(html);
+};
+
+const closeManagerPinModal = () => {
+  managerPrintAction = null;
+  if (managerPinModal) managerPinModal.classList.add("hidden");
+  if (managerPinInput) managerPinInput.value = "";
+  if (managerPinError) {
+    managerPinError.textContent = "";
+    managerPinError.classList.add("hidden");
+  }
+};
+
+const requestManagerPrint = (action) => {
+  if (!managerPinModal || !managerPinInput) {
+    alert("Code gerant indisponible");
+    return;
+  }
+  managerPrintAction = action;
+  managerPinInput.value = "";
+  if (managerPinError) {
+    managerPinError.textContent = "";
+    managerPinError.classList.add("hidden");
+  }
+  managerPinModal.classList.remove("hidden");
+  setTimeout(() => managerPinInput.focus(), 0);
+};
+
+const confirmManagerPrint = async () => {
+  const pin = managerPinInput?.value.trim() || "";
+  if (!pin) return;
+  try {
+    await api("/api/auth/manager-pin", {
+      method: "POST",
+      body: JSON.stringify({ pin })
+    });
+    const action = managerPrintAction;
+    closeManagerPinModal();
+    if (action) await action();
+  } catch (err) {
+    console.error(err);
+    if (managerPinError) {
+      managerPinError.textContent = "Code gerant incorrect";
+      managerPinError.classList.remove("hidden");
+    }
+    if (managerPinInput) {
+      managerPinInput.value = "";
+      managerPinInput.focus();
+    }
+  }
+};
+
+const requestDailyTicketPrint = () => {
+  if (!state.daily) {
+    alert("Pas de ticket journalier");
+    return;
+  }
+  requestManagerPrint(() => printDailyTicketNow());
+};
+
+const printManagerTotalTicket = () => {
+  requestManagerPrint(async () => {
+    try {
+      const report = await api("/api/reports/daily");
+      state.daily = report;
+      printDailyTicketNow();
+    } catch (err) {
+      console.error(err);
+      alert("Impossible de charger le ticket total");
+    }
+  });
 };
 
 const openTable = async (tableId) => {
@@ -1450,7 +1527,15 @@ const registerEvents = () => {
   document.getElementById("print-ticket").addEventListener("click", printReceiptTicket);
   document.getElementById("daily-report").addEventListener("click", loadDailyReport);
   document.getElementById("close-daily").addEventListener("click", hideDaily);
-  document.getElementById("print-daily").addEventListener("click", printDailyTicket);
+  document.getElementById("print-daily").addEventListener("click", requestDailyTicketPrint);
+  if (managerTotalTicketBtn) managerTotalTicketBtn.addEventListener("click", printManagerTotalTicket);
+  if (managerPinConfirmBtn) managerPinConfirmBtn.addEventListener("click", confirmManagerPrint);
+  if (managerPinCancelBtn) managerPinCancelBtn.addEventListener("click", closeManagerPinModal);
+  if (managerPinInput) {
+    managerPinInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") confirmManagerPrint();
+    });
+  }
   if (lockAppBtn) lockAppBtn.addEventListener("click", lockApp);
   if (historyBtn) historyBtn.addEventListener("click", openHistoryModal);
   if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", hideHistoryModal);

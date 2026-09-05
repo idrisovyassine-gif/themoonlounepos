@@ -36,6 +36,7 @@ loadEnvFile(path.join(__dirname, ".env"));
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_PIN = String(process.env.APP_PIN || "121030121030").trim();
+const MANAGER_PIN = String(process.env.MANAGER_PIN || "").trim();
 const AUTH_COOKIE_NAME = "moonlounge_auth";
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || "").trim();
@@ -695,6 +696,17 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(PUBLIC_DIR));
+
+app.post("/api/auth/manager-pin", (req, res) => {
+  if (!MANAGER_PIN) {
+    return res.status(503).json({ error: "Code gerant non configure" });
+  }
+  const pin = String(req.body?.pin || "").trim();
+  if (!pin || pin !== MANAGER_PIN) {
+    return res.status(403).json({ error: "Code gerant invalide" });
+  }
+  return res.json({ authorized: true });
+});
 
 app.get("/api/menu", (_req, res) => {
   res.json(menu);

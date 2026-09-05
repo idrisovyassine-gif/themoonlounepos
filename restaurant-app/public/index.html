@@ -18,6 +18,7 @@
       </div>
     </div>
     <div class="top-actions">
+      <button id="manager-total-ticket" class="ghost-btn">Ticket total</button>
       <button id="payment-history" class="ghost-btn">Historique paiements</button>
       <button id="daily-report" class="ghost-btn">Ticket journalier</button>
       <button id="refresh-tables" class="ghost-btn">Actualiser</button>
@@ -120,6 +121,24 @@
     </div>
   </div>
 
+  <div id="manager-pin-modal" class="ticket-modal hidden">
+    <div class="ticket-card option-card">
+      <div class="ticket-head">
+        <h3>Ticket total</h3>
+        <p>Code gerant requis pour imprimer.</p>
+      </div>
+      <div class="payment-form">
+        <label for="manager-pin-input">Code gerant</label>
+        <input id="manager-pin-input" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" />
+        <p id="manager-pin-error" class="payment-total-hint hidden"></p>
+      </div>
+      <div class="ticket-footer">
+        <button id="manager-pin-confirm" class="pill-btn primary" type="button">Valider</button>
+        <button id="manager-pin-cancel" class="ghost-btn" type="button">Annuler</button>
+      </div>
+    </div>
+  </div>
+
   <div id="payment-modal" class="ticket-modal hidden">
     <div class="ticket-card">
       <div class="ticket-head">
@@ -197,7 +216,7 @@
 
   <div id="print-root" class="print-root" aria-hidden="true"></div>
 
-  <script src="/app.js?v=26" defer></script>
+  <script src="/app.js?v=27" defer></script>
 </body>
 </html>
 
