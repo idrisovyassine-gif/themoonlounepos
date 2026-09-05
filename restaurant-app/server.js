@@ -255,6 +255,28 @@ const ticketCountersByDate = new Map();
 const computeTotal = (items = []) =>
   items.reduce((acc, item) => acc + item.price * item.qty, 0);
 
+const snapshotOrderItems = (items = []) =>
+  items.map((item) => ({
+    id: item.id,
+    name: item.name,
+    price: item.price,
+    qty: Math.max(0, Number(item.qty) || 0)
+  }));
+
+const getKitchenItemsToSend = (order) => {
+  const sentQuantities = new Map(
+    (order.kitchenSentItems || []).map((item) => [item.id, Math.max(0, Number(item.qty) || 0)])
+  );
+
+  return (order.items || [])
+    .map((item) => {
+      const sentQty = sentQuantities.get(item.id) || 0;
+      const qtyToSend = Math.max(0, (Number(item.qty) || 0) - sentQty);
+      return qtyToSend > 0 ? { ...item, qty: qtyToSend } : null;
+    })
+    .filter(Boolean);
+};
+
 const normalizeMoney = (value) => {
   const num = Number(String(value || "0").replace(",", "."));
   if (!Number.isFinite(num)) return 0;
@@ -390,6 +412,8 @@ const createOrder = (tableId) => {
     items: [],
     status: "open",
     sentToKitchen: false,
+    kitchenSentItems: [],
+    kitchenSendCount: 0,
     createdAt: new Date().toISOString()
   };
   orders.set(id, order);
@@ -721,8 +745,26 @@ app.post("/api/orders/:id/send-kitchen", (req, res) => {
   if (!order) {
     return res.status(404).json({ error: "Commande introuvable" });
   }
+
+  const items = getKitchenItemsToSend(order);
   order.sentToKitchen = true;
-  res.json(order);
+  if (!items.length) {
+    return res.json({ order, kitchenTicket: null });
+  }
+
+  const isFirstSend = order.kitchenSendCount === 0;
+  order.kitchenSentItems = snapshotOrderItems(order.items);
+  order.kitchenSendCount += 1;
+
+  res.json({
+    order,
+    kitchenTicket: {
+      type: isFirstSend ? "first" : "supplement",
+      number: order.kitchenSendCount,
+      sentAt: new Date().toISOString(),
+      items
+    }
+  });
 });
 
 app.post("/api/orders/:id/mark-to-pay", (req, res) => {

@@ -730,23 +730,26 @@ const joinThermalLines = (...sections) =>
     .filter((line) => line !== null && line !== undefined && line !== "")
     .join("\n");
 
-const printKitchenTicket = (order) => {
+const printKitchenTicket = (order, kitchenTicket) => {
   const tableLabel = state.currentTable ? `Table ${state.currentTable.id}` : "Table";
-  const date = new Date().toLocaleString();
-  const lines = (order.items || [])
+  const date = new Date(kitchenTicket.sentAt || Date.now()).toLocaleString();
+  const lines = (kitchenTicket.items || [])
     .map(
       (line) =>
         thermalLine(`${line.qty} x ${line.name}`, euros(line.price))
     ) || [];
+  const ticketLabel = kitchenTicket.type === "supplement" ? "COMPLEMENT DE COMMANDE" : "PREMIERE COMMANDE";
+  const lineCount = (kitchenTicket.items || []).reduce((total, line) => total + line.qty, 0);
 
   const text = joinThermalLines(
     "TICKET CUISINE",
+    ticketLabel,
     tableLabel,
     date,
     thermalSeparator(),
     lines.length ? lines : "Aucun article",
     thermalSeparator(),
-    thermalLine("Total lignes", String(order.items?.reduce((a, l) => a + l.qty, 0) || 0))
+    thermalLine("Nouvelles lignes", String(lineCount))
   );
 
   const html = buildThermalPrintDocument("Ticket Cuisine", text);
@@ -756,11 +759,17 @@ const printKitchenTicket = (order) => {
 const sendToKitchen = async () => {
   if (!state.currentOrder) return;
   try {
-    const order = await api(`/api/orders/${state.currentOrder.id}/send-kitchen`, { method: "POST" });
+    const { order, kitchenTicket } = await api(`/api/orders/${state.currentOrder.id}/send-kitchen`, {
+      method: "POST"
+    });
     state.currentOrder = order;
     renderKitchenStatus();
+    if (!kitchenTicket) {
+      alert("Aucun nouvel article a envoyer en cuisine");
+      return;
+    }
     alert("Commande envoyee en cuisine");
-    printKitchenTicket(order);
+    printKitchenTicket(order, kitchenTicket);
   } catch (err) {
     console.error(err);
     alert("Impossible d'envoyer en cuisine");
