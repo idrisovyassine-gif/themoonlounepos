@@ -51,6 +51,7 @@ const alcoholOptionYesBtn = document.getElementById("alcohol-option-yes");
 const alcoholOptionCancelBtn = document.getElementById("alcohol-option-cancel");
 const promotionFlavorModal = document.getElementById("promotion-flavor-modal");
 const promotionFlavorTitle = document.getElementById("promotion-flavor-title");
+const promotionFlavorSubtitle = document.getElementById("promotion-flavor-subtitle");
 const promotionFlavorGrid = document.getElementById("promotion-flavor-grid");
 const promotionFlavorCancelBtn = document.getElementById("promotion-flavor-cancel");
 const historyModal = document.getElementById("history-modal");
@@ -189,6 +190,11 @@ const categoryNeedsPromotionFlavor = (categoryId) => categoryId === "promotions"
 
 const getMenuItemQuantity = (item, categoryId) => {
   const orderItems = state.currentOrder?.items || [];
+  if (item.isAdditionalShishaHead) {
+    return orderItems
+      .filter((i) => i.baseItemId === item.id && i.isAdditionalShishaHead)
+      .reduce((sum, i) => sum + i.qty, 0);
+  }
   if (item.isShisha) {
     return orderItems
       .filter((i) => i.shishaFlavorId === item.id)
@@ -249,14 +255,16 @@ const resolvePromotionFlavor = (flavor) => {
   resolver(flavor);
 };
 
-const pickPromotionFlavor = (promotion) => {
-  const flavors = state.menu.find((category) => category.id === "shisha")?.items || [];
+const pickShishaFlavor = (title, subtitle) => {
+  const flavors = (state.menu.find((category) => category.id === "shisha")?.items || [])
+    .filter((item) => item.isShisha);
   if (!promotionFlavorModal || !promotionFlavorGrid || !flavors.length) {
     alert("Aucun gout shisha disponible");
     return Promise.resolve(null);
   }
   if (promotionFlavorResolver) resolvePromotionFlavor(null);
-  if (promotionFlavorTitle) promotionFlavorTitle.textContent = promotion.name;
+  if (promotionFlavorTitle) promotionFlavorTitle.textContent = title;
+  if (promotionFlavorSubtitle) promotionFlavorSubtitle.textContent = subtitle;
   promotionFlavorGrid.innerHTML = "";
   flavors.forEach((flavor) => {
     const button = document.createElement("button");
@@ -272,6 +280,9 @@ const pickPromotionFlavor = (promotion) => {
   });
 };
 
+const pickPromotionFlavor = (promotion) =>
+  pickShishaFlavor(promotion.name, "Selectionne le gout a ajouter a la promotion.");
+
 const buildPromotionFlavorLine = (promotion, flavor) => ({
   id: `${promotion.id}-gout-${flavor.id}`,
   name: `${promotion.name} - Gout ${flavor.name}`,
@@ -279,6 +290,16 @@ const buildPromotionFlavorLine = (promotion, flavor) => ({
   qty: 1,
   baseItemId: promotion.id,
   promotionShishaFlavorId: flavor.id
+});
+
+const buildAdditionalShishaHeadLine = (item, flavor) => ({
+  id: `${item.id}-${flavor.id}`,
+  name: `${item.name} - Gout ${flavor.name}`,
+  price: normalizeMoney(item.price),
+  qty: 1,
+  baseItemId: item.id,
+  isAdditionalShishaHead: true,
+  shishaFlavorId: flavor.id
 });
 
 const statusLabel = (status) => {
@@ -326,7 +347,9 @@ const renderItems = () => {
     card.className = "item-card";
     const qty = getMenuItemQuantity(item, category.id);
     const selectedHead = getSelectedShishaHead();
-    const priceLabel = item.isShisha
+    const priceLabel = item.isAdditionalShishaHead
+      ? euros(item.price)
+      : item.isShisha
       ? selectedHead
         ? euros(selectedHead.price)
         : "Choisir tete"
@@ -426,6 +449,24 @@ const updateItemQuantity = async (item, delta, categoryId = state.activeCategory
   if (item.promotionShishaFlavorId && delta < 0) {
     const existing = items.find((i) => i.id === item.id);
     if (existing) existing.qty = Math.max(0, existing.qty + delta);
+  } else if (item.isAdditionalShishaHead) {
+    if (delta > 0) {
+      const flavor = await pickShishaFlavor(
+        item.name,
+        `Selectionne le gout pour cette tete supplementaire a ${euros(item.price)}.`
+      );
+      if (!flavor) return;
+      const line = buildAdditionalShishaHeadLine(item, flavor);
+      const existing = items.find((i) => i.id === line.id);
+      if (!existing) {
+        items.push(line);
+      } else {
+        existing.qty = Math.max(0, existing.qty + delta);
+      }
+    } else if (delta < 0) {
+      const existing = items.find((i) => i.baseItemId === item.id && i.isAdditionalShishaHead);
+      if (existing) existing.qty = Math.max(0, existing.qty + delta);
+    }
   } else if (item.isShisha) {
     const head = getSelectedShishaHead();
     if (delta > 0) {
