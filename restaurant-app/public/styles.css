@@ -362,6 +362,43 @@ body.printing-active .print-root {
   gap: 10px;
 }
 
+.offered-menu-heading,
+.offered-category-list {
+  grid-column: 1 / -1;
+}
+
+.offered-menu-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid #9c7622;
+  border-radius: 12px;
+  background: rgba(247, 181, 0, 0.14);
+}
+
+.offered-menu-heading span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.offered-category-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.offered-category-list .chip {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.offered-item {
+  border-color: #9c7622;
+}
+
 .item-card {
   border: 1px solid var(--border);
   border-radius: 12px;

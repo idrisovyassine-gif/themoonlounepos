@@ -6,11 +6,13 @@
   currentOrder: null,
   saving: false,
   daily: null,
+  offeredCategory: null,
   paymentMethod: "card"
 };
 
 let lastTicket = null;
 const RESTAURANT_NAME = "The Moon Brussels";
+const OFFERED_CATEGORY_ID = "__offered__";
 
 const tableGrid = document.getElementById("table-grid");
 const categoryList = document.getElementById("category-list");
@@ -222,6 +224,11 @@ const getMenuItemQuantity = (item, categoryId) => {
   return orderItems.find((i) => i.id === item.id)?.qty || 0;
 };
 
+const getOfferedItemQuantity = (item, categoryId) =>
+  (state.currentOrder?.items || [])
+    .filter((line) => line.isOffered && line.offeredCategoryId === categoryId && line.offeredItemId === item.id)
+    .reduce((sum, line) => sum + line.qty, 0);
+
 const buildAlcoholOptionLine = (item, isAlcoholized) => ({
   id: `${item.id}-${isAlcoholized ? "alcoolise" : "sans-alcool"}`,
   name: `${item.name} - ${isAlcoholized ? "Alcoolise" : "Sans alcool"}`,
@@ -375,18 +382,27 @@ const renderCategories = () => {
     });
     categoryList.appendChild(btn);
   });
+
+  const offeredBtn = document.createElement("button");
+  offeredBtn.className = `chip ${state.activeCategory === OFFERED_CATEGORY_ID ? "active" : ""}`;
+  offeredBtn.textContent = "Offert";
+  offeredBtn.addEventListener("click", () => {
+    state.activeCategory = OFFERED_CATEGORY_ID;
+    state.offeredCategory ||= state.menu[0]?.id || null;
+    renderCategories();
+    renderItems();
+  });
+  categoryList.appendChild(offeredBtn);
 };
 
-const renderItems = () => {
-  itemList.innerHTML = "";
-  const category = state.menu.find((c) => c.id === state.activeCategory) || state.menu[0];
-  if (!category) return;
-  category.items.forEach((item) => {
+const renderItemCard = (item, categoryId, { offered = false } = {}) => {
     const card = document.createElement("div");
-    card.className = "item-card";
-    const qty = getMenuItemQuantity(item, category.id);
+    card.className = `item-card${offered ? " offered-item" : ""}`;
+    const qty = offered ? getOfferedItemQuantity(item, categoryId) : getMenuItemQuantity(item, categoryId);
     const selectedHead = getSelectedShishaHead();
-    const priceLabel = item.isAdditionalShishaHead
+    const priceLabel = offered
+      ? "OFFERT - 0,00 EUR"
+      : item.isAdditionalShishaHead
       ? "A partir de 7,00 EUR"
       : item.isShisha
       ? selectedHead
@@ -406,7 +422,7 @@ const renderItems = () => {
         </div>
       </div>
     `;
-    if (item.isShisha && !selectedHead) {
+    if (!offered && item.isShisha && !selectedHead) {
       card.classList.add("needs-head");
       card.querySelectorAll("button[data-delta]").forEach((btn) => {
         btn.disabled = btn.dataset.delta === "1";
@@ -415,11 +431,56 @@ const renderItems = () => {
         }
       });
     }
-    card.querySelectorAll("button[data-delta]").forEach((btn) =>
-      btn.addEventListener("click", () => updateItemQuantity(item, Number(btn.dataset.delta), category.id))
-    );
+    card.querySelectorAll("button[data-delta]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const delta = Number(btn.dataset.delta);
+        if (offered) {
+          updateOfferedItemQuantity(item, categoryId, delta);
+        } else {
+          updateItemQuantity(item, delta, categoryId);
+        }
+      });
+    });
     itemList.appendChild(card);
+};
+
+const renderOfferedItems = () => {
+  const offeredCategory = state.menu.find((category) => category.id === state.offeredCategory) || state.menu[0];
+  if (!offeredCategory) return;
+
+  const heading = document.createElement("div");
+  heading.className = "offered-menu-heading";
+  heading.innerHTML = "<strong>Articles offerts</strong><span>Choisis une categorie, puis l'article a offrir.</span>";
+  itemList.appendChild(heading);
+
+  const categoryChoices = document.createElement("div");
+  categoryChoices.className = "offered-category-list";
+  state.menu.forEach((category) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `chip ${state.offeredCategory === category.id ? "active" : ""}`;
+    btn.textContent = category.label;
+    btn.addEventListener("click", () => {
+      state.offeredCategory = category.id;
+      renderItems();
+    });
+    categoryChoices.appendChild(btn);
   });
+  itemList.appendChild(categoryChoices);
+
+  offeredCategory.items.forEach((item) => renderItemCard(item, offeredCategory.id, { offered: true }));
+};
+
+const renderItems = () => {
+  itemList.innerHTML = "";
+  if (state.activeCategory === OFFERED_CATEGORY_ID) {
+    renderOfferedItems();
+    return;
+  }
+
+  const category = state.menu.find((c) => c.id === state.activeCategory) || state.menu[0];
+  if (!category) return;
+  category.items.forEach((item) => renderItemCard(item, category.id));
 };
 
 const renderOrder = () => {
@@ -477,6 +538,32 @@ const removeOrderLine = (item) => {
     items.splice(targetIndex, 1);
   }
   state.currentOrder.items = items;
+  renderItems();
+  renderOrder();
+  persistOrder();
+};
+
+const updateOfferedItemQuantity = (item, categoryId, delta) => {
+  if (!state.currentOrder) return;
+  const items = [...state.currentOrder.items];
+  const id = `offert-${categoryId}-${item.id}`;
+  const existing = items.find((line) => line.id === id);
+
+  if (!existing && delta > 0) {
+    items.push({
+      id,
+      name: `Offert - ${item.name}`,
+      price: 0,
+      qty: 1,
+      isOffered: true,
+      offeredCategoryId: categoryId,
+      offeredItemId: item.id
+    });
+  } else if (existing) {
+    existing.qty = Math.max(0, existing.qty + delta);
+  }
+
+  state.currentOrder.items = items.filter((line) => line.qty > 0);
   renderItems();
   renderOrder();
   persistOrder();
