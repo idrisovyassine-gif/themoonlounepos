@@ -6,7 +6,6 @@
   currentOrder: null,
   saving: false,
   daily: null,
-  printKitchen: false,
   paymentMethod: "card"
 };
 
@@ -761,9 +760,7 @@ const sendToKitchen = async () => {
     state.currentOrder = order;
     renderKitchenStatus();
     alert("Commande envoyee en cuisine");
-    if (state.printKitchen) {
-      printKitchenTicket(order);
-    }
+    printKitchenTicket(order);
   } catch (err) {
     console.error(err);
     alert("Impossible d'envoyer en cuisine");
@@ -1320,19 +1317,6 @@ const hideHistoryModal = () => {
   historyModal.classList.add("hidden");
 };
 
-const updateKitchenPrintToggle = () => {
-  const btn = document.getElementById("kitchen-print-toggle");
-  if (!btn) return;
-  btn.textContent = `Impression cuisine : ${state.printKitchen ? "on" : "off"}`;
-};
-
-const toggleKitchenPrint = () => {
-  state.printKitchen = !state.printKitchen;
-  localStorage.setItem("kitchen-print-enabled", state.printKitchen ? "1" : "0");
-  updateKitchenPrintToggle();
-  alert(state.printKitchen ? "Impression cuisine activee sur cet appareil" : "Impression cuisine desactivee");
-};
-
 const lockApp = async () => {
   try {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -1358,7 +1342,6 @@ const registerEvents = () => {
   document.getElementById("daily-report").addEventListener("click", loadDailyReport);
   document.getElementById("close-daily").addEventListener("click", hideDaily);
   document.getElementById("print-daily").addEventListener("click", printDailyTicket);
-  document.getElementById("kitchen-print-toggle").addEventListener("click", toggleKitchenPrint);
   if (lockAppBtn) lockAppBtn.addEventListener("click", lockApp);
   if (historyBtn) historyBtn.addEventListener("click", openHistoryModal);
   if (closeHistoryBtn) closeHistoryBtn.addEventListener("click", hideHistoryModal);
@@ -1395,9 +1378,7 @@ const init = async () => {
   registerServiceWorker();
   state.menu = await api("/api/menu");
   state.activeCategory = state.menu[0]?.id;
-  state.printKitchen = localStorage.getItem("kitchen-print-enabled") === "1";
   state.paymentMethod = "card";
-  updateKitchenPrintToggle();
   renderCategories();
   renderItems();
   await refreshTables();
