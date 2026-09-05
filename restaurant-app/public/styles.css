@@ -611,6 +611,25 @@ body.printing-active .print-root {
   min-height: 52px;
 }
 
+.flavor-option-card {
+  width: min(680px, 100%);
+}
+
+.flavor-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 14px 0;
+  padding-right: 4px;
+}
+
+.flavor-choice-grid button {
+  min-height: 52px;
+  padding: 10px;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;

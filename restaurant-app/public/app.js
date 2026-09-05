@@ -49,6 +49,10 @@ const alcoholOptionSubtitle = document.getElementById("alcohol-option-subtitle")
 const alcoholOptionNoBtn = document.getElementById("alcohol-option-no");
 const alcoholOptionYesBtn = document.getElementById("alcohol-option-yes");
 const alcoholOptionCancelBtn = document.getElementById("alcohol-option-cancel");
+const promotionFlavorModal = document.getElementById("promotion-flavor-modal");
+const promotionFlavorTitle = document.getElementById("promotion-flavor-title");
+const promotionFlavorGrid = document.getElementById("promotion-flavor-grid");
+const promotionFlavorCancelBtn = document.getElementById("promotion-flavor-cancel");
 const historyModal = document.getElementById("history-modal");
 const historyList = document.getElementById("history-list");
 const historyBtn = document.getElementById("payment-history");
@@ -68,6 +72,7 @@ const SHISHA_HEADS = [
 const ALCOHOL_OPTION_CATEGORIES = new Set(["mocktails", "mojitos"]);
 const ALCOHOL_SUPPLEMENT_PRICE = 3;
 let alcoholOptionResolver = null;
+let promotionFlavorResolver = null;
 
 const api = async (url, options = {}) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
@@ -180,6 +185,7 @@ const getSelectedShishaHead = () => {
 };
 
 const categoryNeedsAlcoholOption = (categoryId) => ALCOHOL_OPTION_CATEGORIES.has(categoryId);
+const categoryNeedsPromotionFlavor = (categoryId) => categoryId === "promotions";
 
 const getMenuItemQuantity = (item, categoryId) => {
   const orderItems = state.currentOrder?.items || [];
@@ -189,6 +195,11 @@ const getMenuItemQuantity = (item, categoryId) => {
       .reduce((sum, i) => sum + i.qty, 0);
   }
   if (categoryNeedsAlcoholOption(categoryId)) {
+    return orderItems
+      .filter((i) => i.id === item.id || i.baseItemId === item.id)
+      .reduce((sum, i) => sum + i.qty, 0);
+  }
+  if (categoryNeedsPromotionFlavor(categoryId)) {
     return orderItems
       .filter((i) => i.id === item.id || i.baseItemId === item.id)
       .reduce((sum, i) => sum + i.qty, 0);
@@ -229,6 +240,46 @@ const pickAlcoholOption = (item) => {
     alcoholOptionResolver = resolve;
   });
 };
+
+const resolvePromotionFlavor = (flavor) => {
+  if (!promotionFlavorResolver) return;
+  const resolver = promotionFlavorResolver;
+  promotionFlavorResolver = null;
+  if (promotionFlavorModal) promotionFlavorModal.classList.add("hidden");
+  resolver(flavor);
+};
+
+const pickPromotionFlavor = (promotion) => {
+  const flavors = state.menu.find((category) => category.id === "shisha")?.items || [];
+  if (!promotionFlavorModal || !promotionFlavorGrid || !flavors.length) {
+    alert("Aucun gout shisha disponible");
+    return Promise.resolve(null);
+  }
+  if (promotionFlavorResolver) resolvePromotionFlavor(null);
+  if (promotionFlavorTitle) promotionFlavorTitle.textContent = promotion.name;
+  promotionFlavorGrid.innerHTML = "";
+  flavors.forEach((flavor) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-btn";
+    button.textContent = flavor.name;
+    button.addEventListener("click", () => resolvePromotionFlavor(flavor));
+    promotionFlavorGrid.appendChild(button);
+  });
+  promotionFlavorModal.classList.remove("hidden");
+  return new Promise((resolve) => {
+    promotionFlavorResolver = resolve;
+  });
+};
+
+const buildPromotionFlavorLine = (promotion, flavor) => ({
+  id: `${promotion.id}-gout-${flavor.id}`,
+  name: `${promotion.name} - Gout ${flavor.name}`,
+  price: normalizeMoney(promotion.price),
+  qty: 1,
+  baseItemId: promotion.id,
+  promotionShishaFlavorId: flavor.id
+});
 
 const statusLabel = (status) => {
   if (status === "occupied") return "Occupee";
@@ -372,7 +423,10 @@ const removeOrderLine = (item) => {
 const updateItemQuantity = async (item, delta, categoryId = state.activeCategory) => {
   if (!state.currentOrder) return;
   const items = [...state.currentOrder.items];
-  if (item.isShisha) {
+  if (item.promotionShishaFlavorId && delta < 0) {
+    const existing = items.find((i) => i.id === item.id);
+    if (existing) existing.qty = Math.max(0, existing.qty + delta);
+  } else if (item.isShisha) {
     const head = getSelectedShishaHead();
     if (delta > 0) {
       if (!head) {
@@ -407,6 +461,23 @@ const updateItemQuantity = async (item, delta, categoryId = state.activeCategory
       if (existing) {
         existing.qty = Math.max(0, existing.qty + delta);
       }
+    }
+  } else if (categoryNeedsPromotionFlavor(categoryId)) {
+    if (delta > 0) {
+      const flavor = await pickPromotionFlavor(item);
+      if (!flavor) return;
+      const line = buildPromotionFlavorLine(item, flavor);
+      const existing = items.find((i) => i.id === line.id);
+      if (!existing) {
+        items.push(line);
+      } else {
+        existing.qty = Math.max(0, existing.qty + delta);
+      }
+    } else if (delta < 0) {
+      const existing =
+        items.find((i) => i.id === item.id) ||
+        items.find((i) => i.baseItemId === item.id);
+      if (existing) existing.qty = Math.max(0, existing.qty + delta);
     }
   } else if (categoryNeedsAlcoholOption(categoryId)) {
     if (delta > 0) {
@@ -1213,6 +1284,9 @@ const registerEvents = () => {
   if (alcoholOptionNoBtn) alcoholOptionNoBtn.addEventListener("click", () => resolveAlcoholOption(false));
   if (alcoholOptionYesBtn) alcoholOptionYesBtn.addEventListener("click", () => resolveAlcoholOption(true));
   if (alcoholOptionCancelBtn) alcoholOptionCancelBtn.addEventListener("click", () => resolveAlcoholOption(null));
+  if (promotionFlavorCancelBtn) {
+    promotionFlavorCancelBtn.addEventListener("click", () => resolvePromotionFlavor(null));
+  }
   if (paymentCashInput) paymentCashInput.addEventListener("input", updatePaymentTotalHint);
   if (paymentCardInput) paymentCardInput.addEventListener("input", updatePaymentTotalHint);
   document.getElementById("fullscreen-btn").addEventListener("click", () => {
