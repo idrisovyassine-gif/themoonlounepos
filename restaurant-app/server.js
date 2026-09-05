@@ -208,10 +208,7 @@ const menu = [
     id: "shisha",
     label: "Shisha",
     items: [
-      { id: "tete-supplementaire-quasar", name: "Tete supplementaire Quasar", price: 8.0, isAdditionalShishaHead: true },
-      { id: "tete-supplementaire-hookah", name: "Tete supplementaire Hookah", price: 8.0, isAdditionalShishaHead: true },
-      { id: "tete-supplementaire-brohood", name: "Tete supplementaire Brohood", price: 7.0, isAdditionalShishaHead: true },
-      { id: "tete-supplementaire-kaloud", name: "Tete supplementaire Kaloud", price: 7.0, isAdditionalShishaHead: true },
+      { id: "tete-supplementaire", name: "Tete supplementaire", price: 0.0, isAdditionalShishaHead: true },
       { id: "double-pomme", name: "Double pomme", price: 0.0, isShisha: true },
       { id: "love-66", name: "Love 66", price: 0.0, isShisha: true },
       { id: "lady-killer", name: "Lady killer", price: 0.0, isShisha: true },
