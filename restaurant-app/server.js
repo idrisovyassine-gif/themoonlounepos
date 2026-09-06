@@ -121,13 +121,13 @@ const menu = [
     id: "softs-classiques",
     label: "Softs Classiques",
     items: [
-      { id: "coca-cola", name: "Coca-Cola / Coca-Cola Zero", price: 4.0 },
-      { id: "fanta", name: "Fanta Orange / Citron", price: 4.0 },
-      { id: "sprite", name: "Sprite", price: 4.0 },
-      { id: "ice-tea", name: "Ice Tea (Peche, Citron)", price: 4.0 },
+      { id: "coca-cola", name: "Coca-Cola / Coca-Cola Zero", price: 5.0 },
+      { id: "fanta", name: "Fanta Orange / Citron", price: 5.0 },
+      { id: "sprite", name: "Sprite", price: 5.0 },
+      { id: "ice-tea", name: "Ice Tea (Peche, Citron)", price: 5.0 },
       { id: "red-bull", name: "Red Bull", price: 5.0 },
-      { id: "jooza", name: "Jus de fruits Jooza (Orange, Pomme, Ananas, Mangue, Fraise, Framboise)", price: 4.0 },
-      { id: "oasis", name: "Oasis tropical", price: 4.0 },
+      { id: "jooza", name: "Jus de fruits Jooza (Orange, Pomme, Ananas, Mangue, Fraise, Framboise)", price: 5.0 },
+      { id: "oasis", name: "Oasis tropical", price: 5.0 },
       { id: "eau-1l", name: "Bouteille eau 1L (plate ou gazeuse)", price: 5.0 }
     ]
   },
@@ -865,6 +865,23 @@ app.put("/api/staff/:id", requireManager, (req, res) => {
   staff.updatedAt = new Date().toISOString();
   saveStaff();
   return res.json(publicStaff(staff));
+});
+
+app.delete("/api/staff/:id", requireManager, (req, res) => {
+  const index = staffMembers.findIndex((member) => member.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: "Serveur introuvable" });
+
+  const staff = staffMembers[index];
+  if (staff.role === "manager") {
+    return res.status(400).json({ error: "Le compte gerant ne peut pas etre supprime" });
+  }
+
+  staffMembers.splice(index, 1);
+  for (const [token, session] of authSessions.entries()) {
+    if (session.user?.id === staff.id) authSessions.delete(token);
+  }
+  saveStaff();
+  return res.json({ ok: true, staff: publicStaff(staff) });
 });
 
 app.get("/api/menu", (_req, res) => {

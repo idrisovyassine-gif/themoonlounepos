@@ -1484,10 +1484,13 @@ const renderStaffList = (staff) => {
         <span>${member.role === "manager" ? "Gerant" : "Serveur"}</span>
       </div>
       <input type="password" inputmode="numeric" minlength="4" placeholder="Nouveau PIN" />
-      <button class="ghost-btn" type="button">Modifier PIN</button>
+      <div class="staff-actions">
+        <button class="ghost-btn staff-pin-btn" type="button">Modifier PIN</button>
+        ${member.role === "manager" ? "" : '<button class="ghost-btn danger-btn staff-delete-btn" type="button">Supprimer</button>'}
+      </div>
     `;
     const pinInput = row.querySelector("input");
-    row.querySelector("button").addEventListener("click", async () => {
+    row.querySelector(".staff-pin-btn").addEventListener("click", async () => {
       const pin = pinInput.value.trim();
       if (pin.length < 4) {
         alert("Le PIN doit contenir au moins 4 chiffres");
@@ -1505,6 +1508,19 @@ const renderStaffList = (staff) => {
         alert("Impossible de modifier le PIN");
       }
     });
+    const deleteBtn = row.querySelector(".staff-delete-btn");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", async () => {
+        if (!window.confirm(`Supprimer definitivement ${member.name} ?`)) return;
+        try {
+          await api(`/api/staff/${member.id}`, { method: "DELETE" });
+          await openStaffModal();
+        } catch (err) {
+          console.error(err);
+          alert("Impossible de supprimer ce serveur");
+        }
+      });
+    }
     staffList.appendChild(row);
   });
 };

@@ -737,9 +737,19 @@ body.printing-active .print-root {
   font-size: 12px;
 }
 
+.staff-actions {
+  display: grid;
+  gap: 6px;
+}
+
 .staff-row button {
   padding: 10px;
   border-radius: 10px;
+}
+
+.danger-btn {
+  color: #a42626;
+  border-color: #d99b9b;
 }
 
 .staff-report-card {
