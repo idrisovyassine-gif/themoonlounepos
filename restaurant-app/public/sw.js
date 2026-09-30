@@ -1,11 +1,10 @@
-const CACHE_NAME = "pos-cache-v30";
+const CACHE_NAME = "servio-pos-v33";
 const ASSETS = [
-  "/styles.css",
-  "/app.js?v=30",
+  "/styles.css?v=33",
+  "/app.js?v=33",
   "/manifest.webmanifest",
   "/icons/icon-192.svg",
-  "/icons/icon-512.svg",
-  "/logo.png"
+  "/icons/icon-512.svg"
 ];
 
 self.addEventListener("install", (event) => {
