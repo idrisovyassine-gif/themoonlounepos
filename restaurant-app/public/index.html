@@ -5,23 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>POS Restaurant Tactile</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=33">
+  <link rel="stylesheet" href="/styles.css">
   <meta name="theme-color" content="#121826">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="dot"></div>
-      <img id="restaurant-logo" class="restaurant-logo hidden" alt="Logo du restaurant">
       <div>
         <p class="eyebrow">Service en salle</p>
-        <h1 id="restaurant-name">Servio POS</h1>
+        <h1>The Moon Brussels</h1>
         <p id="current-user" class="current-user"></p>
       </div>
     </div>
     <div class="top-actions">
-      <a id="dashboard-link" class="ghost-btn manager-only hidden" href="/dashboard">Gestion</a>
-      <a class="ghost-btn manager-only hidden" href="/kitchen">Cuisine</a>
       <button id="manager-total-ticket" class="ghost-btn manager-only hidden">Ticket total</button>
       <button id="payment-history" class="ghost-btn manager-only hidden">Historique paiements</button>
       <button id="daily-report" class="ghost-btn manager-only hidden">Ticket journalier</button>
@@ -56,7 +53,7 @@
           <p class="eyebrow" id="table-status-label">Table</p>
           <h2 id="table-title">Table</h2>
           <div id="kitchen-status" class="status-chip hidden"></div>
-          <div id="lounge-options" class="head-select hidden">
+          <div class="head-select">
             <label class="eyebrow" for="shisha-head">Tete shisha</label>
             <select id="shisha-head" class="pill-select">
               <option value="">Choisir tete</option>
@@ -79,7 +76,6 @@
         <div class="summary">
           <h3>Commande</h3>
           <ul id="order-items" class="order-items"></ul>
-          <div id="order-breakdown" class="ticket-vat"></div>
           <div class="total-row">
             <span>Total TTC</span>
             <strong id="order-total">0,00 EUR</strong>
@@ -132,7 +128,7 @@
     <div class="ticket-card">
       <div class="ticket-head">
         <h3>Encaissement</h3>
-        <p>Introduire le montant payé maintenant. Un paiement partiel laisse le solde ouvert sur la table.</p>
+        <p>Introduire les montants payes en cash et en carte.</p>
       </div>
       <div class="payment-form">
         <label for="payment-cash">Montant cash (EUR)</label>
@@ -236,7 +232,7 @@
 
   <div id="print-root" class="print-root" aria-hidden="true"></div>
 
-  <script src="/app.js?v=33" defer></script>
+  <script src="/app.js?v=30" defer></script>
 </body>
 </html>
 

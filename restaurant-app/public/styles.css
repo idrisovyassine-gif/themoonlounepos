@@ -32,13 +32,12 @@ body::after {
   content: "";
   position: fixed;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(31, 138, 238, 0.10), transparent 34%);
-  opacity: 1;
+  background: url("/logo.png") center center / 320px no-repeat;
+  opacity: 0.14;
   pointer-events: none;
   z-index: 0;
+  filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.35));
 }
-
-.restaurant-logo { width:48px; height:48px; border-radius:12px; object-fit:cover; border:1px solid var(--border); }
 
 .current-user {
   display: inline-block;

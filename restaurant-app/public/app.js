@@ -8,13 +8,12 @@
   daily: null,
   offeredCategory: null,
   user: null,
-  paymentMethod: "card",
-  restaurant: null
+  paymentMethod: "card"
 };
 
 let lastTicket = null;
 let kitchenSendInProgress = false;
-const restaurantName = () => state.restaurant?.name || "Servio POS";
+const RESTAURANT_NAME = "The Moon Brussels";
 const OFFERED_CATEGORY_ID = "__offered__";
 
 const tableGrid = document.getElementById("table-grid");
@@ -22,7 +21,6 @@ const categoryList = document.getElementById("category-list");
 const itemList = document.getElementById("item-list");
 const orderItemsEl = document.getElementById("order-items");
 const orderTotalEl = document.getElementById("order-total");
-const orderBreakdownEl = document.getElementById("order-breakdown");
 const tablesPanel = document.getElementById("tables-panel");
 const orderPanel = document.getElementById("order-panel");
 const tableTitle = document.getElementById("table-title");
@@ -115,7 +113,7 @@ const api = async (url, options = {}) => {
   return res.json();
 };
 
-const euros = (value) => new Intl.NumberFormat(state.restaurant?.language || "fr", { style: "currency", currency: state.restaurant?.currency || "EUR" }).format(Number(value) || 0);
+const euros = (value) => `${value.toFixed(2)} EUR`;
 const formatTicketNumber = (value) => {
   const num = Number(value);
   if (!Number.isInteger(num) || num < 1) return "N/A";
@@ -215,23 +213,8 @@ const getSelectedShishaHead = () => {
   return SHISHA_HEADS.find((head) => head.id === id) || null;
 };
 
-const categoryNeedsAlcoholOption = (categoryId) => state.menu.find((category) => category.id === categoryId)?.feature === "ALCOHOL_UPGRADE";
-const categoryNeedsPromotionFlavor = (categoryId) => state.menu.find((category) => category.id === categoryId)?.feature === "PROMOTION_FLAVOR";
-
-const pickGenericOptions = (item) => {
-  const selected = [];
-  for (const group of item.optionGroups || []) {
-    const choices = group.options || [];
-    const promptText = `${item.name} — ${group.name}\n${choices.map((option, index) => `${index + 1}. ${option.name}${option.priceDelta ? ` (+${euros(option.priceDelta)})` : ""}`).join("\n")}\n${group.maxChoices > 1 ? "Séparez plusieurs numéros par une virgule." : "Entrez le numéro du choix."}`;
-    const answer = window.prompt(promptText, group.required ? "1" : "");
-    if (answer === null || (!answer.trim() && group.required)) return null;
-    if (!answer.trim()) continue;
-    const indexes = [...new Set(answer.split(",").map(value => Number(value.trim()) - 1))].filter(index => index >= 0 && index < choices.length).slice(0, group.maxChoices || 1);
-    if (indexes.length < (group.minChoices || 0)) { alert(`Sélection requise pour ${group.name}`); return null; }
-    indexes.forEach(index => selected.push(choices[index]));
-  }
-  return selected;
-};
+const categoryNeedsAlcoholOption = (categoryId) => ALCOHOL_OPTION_CATEGORIES.has(categoryId);
+const categoryNeedsPromotionFlavor = (categoryId) => categoryId === "promotions";
 
 const getMenuItemQuantity = (item, categoryId) => {
   const orderItems = state.currentOrder?.items || [];
@@ -254,9 +237,6 @@ const getMenuItemQuantity = (item, categoryId) => {
     return orderItems
       .filter((i) => i.id === item.id || i.baseItemId === item.id)
       .reduce((sum, i) => sum + i.qty, 0);
-  }
-  if (item.optionGroups?.length) {
-    return orderItems.filter((i) => i.baseItemId === item.id).reduce((sum, i) => sum + i.qty, 0);
   }
   return orderItems.find((i) => i.id === item.id)?.qty || 0;
 };
@@ -309,7 +289,7 @@ const resolvePromotionFlavor = (flavor) => {
 };
 
 const pickShishaFlavor = (title, subtitle) => {
-  const flavors = (state.menu.find((category) => category.items?.some((item) => item.isShisha))?.items || [])
+  const flavors = (state.menu.find((category) => category.id === "shisha")?.items || [])
     .filter((item) => item.isShisha);
   if (!promotionFlavorModal || !promotionFlavorGrid || !flavors.length) {
     alert("Aucun gout shisha disponible");
@@ -539,47 +519,26 @@ const renderOrder = () => {
     });
     orderItemsEl.appendChild(li);
   });
-  const subtotal = items.reduce((acc, curr) => acc + curr.price * curr.qty, 0);
-  const serviceCharge = subtotal * (Number(state.restaurant?.serviceChargeRate) || 0) / 100;
-  const discount = Number(state.currentOrder?.discount) || 0;
-  const tip = Number(state.currentOrder?.tip) || 0;
-  const total = Math.max(0, subtotal + serviceCharge + tip - discount);
-  const paid = normalizeMoney(state.currentOrder?.paidAmount);
-  const remaining = Math.max(0, Math.round((total - paid) * 100) / 100);
-  if (orderBreakdownEl) orderBreakdownEl.innerHTML = `${state.restaurant?.taxRate ? `<div>TVA incluse (${state.restaurant.taxRate} %) : ${euros(subtotal - subtotal / (1 + state.restaurant.taxRate / 100))}</div>` : ""}${serviceCharge ? `<div>Frais de service : ${euros(serviceCharge)}</div>` : ""}${discount ? `<div>Remise : -${euros(discount)}</div>` : ""}${tip ? `<div>Pourboire : ${euros(tip)}</div>` : ""}${paid ? `<div>Déjà payé : ${euros(paid)}</div><div><strong>Reste à payer : ${euros(remaining)}</strong></div>` : ""}`;
+  const total = items.reduce((acc, curr) => acc + curr.price * curr.qty, 0);
   orderTotalEl.textContent = euros(total);
-};
-
-const currentOrderTotal = () => {
-  const subtotal = (state.currentOrder?.items || []).reduce((sum, item) => sum + item.price * item.qty, 0);
-  return Math.max(0, subtotal + subtotal * (Number(state.restaurant?.serviceChargeRate) || 0) / 100 + (Number(state.currentOrder?.tip) || 0) - (Number(state.currentOrder?.discount) || 0));
-};
-
-const currentPayableTotal = () => {
-  return Math.max(0, Math.round((currentOrderTotal() - normalizeMoney(state.currentOrder?.paidAmount)) * 100) / 100);
 };
 
 const updatePaymentTotalHint = () => {
   if (!paymentTotalHint || !state.currentOrder) return;
-  const total = currentPayableTotal();
-  const alreadyPaid = normalizeMoney(state.currentOrder?.paidAmount);
+  const total = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
   const cash = normalizeMoney(paymentCashInput ? paymentCashInput.value : 0);
   const card = normalizeMoney(paymentCardInput ? paymentCardInput.value : 0);
   const entered = Math.round((cash + card) * 100) / 100;
   const diff = Math.round((total - entered) * 100) / 100;
-  if (entered <= 0) {
-    paymentTotalHint.textContent = `${alreadyPaid ? `Déjà payé ${euros(alreadyPaid)} · ` : ""}Reste à payer ${euros(total)}`;
-    return;
-  }
   if (Math.abs(diff) < 0.01) {
-    paymentTotalHint.textContent = `Solde entièrement réglé : ${euros(total)}`;
+    paymentTotalHint.textContent = `Total OK: ${euros(total)}`;
     return;
   }
   if (diff > 0) {
-    paymentTotalHint.textContent = `Paiement partiel : ${euros(entered)} · Il restera ${euros(diff)}`;
+    paymentTotalHint.textContent = `Il manque ${euros(diff)} (total ${euros(total)})`;
     return;
   }
-  paymentTotalHint.textContent = `Rendu client : ${euros(Math.abs(diff))} · Solde ${euros(total)}`;
+  paymentTotalHint.textContent = `Rendu client: ${euros(Math.abs(diff))} (total ${euros(total)})`;
 };
 
 const computePaymentMethod = (totalCash, totalCard) => {
@@ -689,19 +648,6 @@ const updateItemQuantity = async (item, delta, categoryId = state.activeCategory
         existing.qty = Math.max(0, existing.qty + delta);
       }
     }
-  } else if (item.optionGroups?.length) {
-    if (delta > 0) {
-      const selectedOptions = pickGenericOptions(item);
-      if (selectedOptions === null) return;
-      const optionKey = selectedOptions.map((option) => option.id).sort().join("-") || "standard";
-      const lineId = `option-${item.id}-${optionKey}`;
-      const existing = items.find((line) => line.id === lineId);
-      if (existing) existing.qty += 1;
-      else items.push({ id: lineId, baseItemId: item.id, productId: item.id, name: `${item.name}${selectedOptions.length ? ` — ${selectedOptions.map((option) => option.name).join(", ")}` : ""}`, price: item.price + selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0), qty: 1, selectedOptions });
-    } else {
-      const existing = items.find((line) => line.baseItemId === item.id);
-      if (existing) existing.qty = Math.max(0, existing.qty - 1);
-    }
   } else if (categoryNeedsPromotionFlavor(categoryId)) {
     if (delta > 0) {
       const flavor = await pickPromotionFlavor(item);
@@ -766,7 +712,6 @@ const persistOrder = () => {
         body: JSON.stringify({ items: state.currentOrder.items })
       });
       state.currentOrder = updated;
-      renderOrder();
       localStorage.setItem(`order-${state.currentTable.id}`, JSON.stringify(updated.items));
     } catch (err) {
       console.error(err);
@@ -1016,7 +961,7 @@ const printDailyTicketNow = () => {
   ];
   const displayDate = state.daily.date;
   const text = joinThermalLines(
-    restaurantName(),
+    RESTAURANT_NAME,
     "TICKET DE LA JOURNEE",
     `Date: ${displayDate}`,
     hasVatNumber(state.daily.vatNumber) ? `TVA: ${state.daily.vatNumber}` : null,
@@ -1026,7 +971,7 @@ const printDailyTicketNow = () => {
     thermalLine("Total journalier", euros(state.daily.totalTtc || 0))
   );
 
-  const html = buildThermalPrintDocument(`${restaurantName()} - TICKET DE LA JOURNEE`, text);
+  const html = buildThermalPrintDocument(`${RESTAURANT_NAME} - TICKET DE LA JOURNEE`, text);
   openPrintWindow(html);
 };
 
@@ -1077,9 +1022,6 @@ const refreshTables = async () => {
 
 const markToPay = async () => {
   if (!state.currentOrder) return;
-  clearTimeout(saveTimeout);
-  state.currentOrder = await api(`/api/orders/${state.currentOrder.id}`, { method: "PUT", body: JSON.stringify({ items: state.currentOrder.items, discount: state.currentOrder.discount || 0, tip: state.currentOrder.tip || 0 }) });
-  renderOrder();
   await api(`/api/orders/${state.currentOrder.id}/mark-to-pay`, { method: "POST" });
   tableStatusLabel.textContent = "Statut : A payer";
   await refreshTables();
@@ -1089,11 +1031,12 @@ const markToPay = async () => {
 const confirmPayment = async () => {
   if (!state.currentOrder) return;
   try {
+    const orderTotal = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
     const totalCash = normalizeMoney(paymentCashInput ? paymentCashInput.value : 0);
     const totalCard = normalizeMoney(paymentCardInput ? paymentCardInput.value : 0);
     const entered = Math.round((totalCash + totalCard) * 100) / 100;
-    if (entered <= 0) {
-      alert("Introduisez un montant à encaisser.");
+    if (entered + 0.01 < orderTotal) {
+      alert(`Le total saisi (${euros(entered)}) doit etre au moins egal au total commande (${euros(orderTotal)}).`);
       return;
     }
     const method = computePaymentMethod(totalCash, totalCard);
@@ -1109,17 +1052,11 @@ const confirmPayment = async () => {
       })
     });
     showTicket(ticket);
-    if (ticket.partial) {
-      state.currentOrder = ticket.order;
-      tableStatusLabel.textContent = "Statut : A payer (paiement partiel)";
-      renderOrder();
-    } else {
-      localStorage.removeItem(`order-${state.currentTable.id}`);
-      state.currentOrder = null;
-      state.currentTable = null;
-      orderPanel.classList.add("hidden");
-      tablesPanel.classList.remove("hidden");
-    }
+    localStorage.removeItem(`order-${state.currentTable.id}`);
+    state.currentOrder = null;
+    state.currentTable = null;
+    orderPanel.classList.add("hidden");
+    tablesPanel.classList.remove("hidden");
     await refreshTables();
     hidePaymentModal();
   } catch (err) {
@@ -1140,20 +1077,12 @@ const showTicket = (ticket) => {
   const serverLabel = ticket.paidBy?.name ? `  -  Serveur: ${ticket.paidBy.name}` : "";
   ticketMeta.textContent = `Ticket N ${formatTicketNumber(ticket.ticketNumber)}  -  Table ${ticket.table}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}${serverLabel}`;
   ticketLines.innerHTML = "";
-  const ticketTotalLabel = ticketTotal.parentElement?.querySelector("span");
-  if (ticketTotalLabel) ticketTotalLabel.textContent = ticket.partial || ticket.orderTotal !== ticket.totalTtc ? "Paiement reçu" : "Total TTC";
   ticket.items.forEach((line) => {
     const row = document.createElement("div");
     row.className = "ticket-row";
     row.innerHTML = `<span>${line.qty} x ${line.name}</span><strong>${euros(line.price * line.qty)}</strong>`;
     ticketLines.appendChild(row);
   });
-  if (!ticket.items.length) {
-    const paymentRow = document.createElement("div");
-    paymentRow.className = "ticket-row";
-    paymentRow.innerHTML = `<span>Paiement commande</span><strong>${euros(ticket.totalTtc)}</strong>`;
-    ticketLines.appendChild(paymentRow);
-  }
   if (typeof ticket.totalCash === "number" || typeof ticket.totalCard === "number") {
     const totalCash =
       typeof ticket.paidCash === "number"
@@ -1182,20 +1111,14 @@ const showTicket = (ticket) => {
       ticketLines.appendChild(changeRow);
     }
   }
-  if (typeof ticket.remainingBalance === "number" && ticket.remainingBalance > 0) {
-    const remainingRow = document.createElement("div");
-    remainingRow.className = "ticket-row";
-    remainingRow.innerHTML = `<span>Reste à payer sur la table</span><strong>${euros(ticket.remainingBalance)}</strong>`;
-    ticketLines.appendChild(remainingRow);
-  }
   ticketTotal.textContent = euros(ticket.totalTtc);
   const existingAddress = ticketModal.querySelector(".ticket-address");
   if (existingAddress) {
-    existingAddress.textContent = ticket.restaurantAddress || "";
+    existingAddress.textContent = "Chaussée d'Haecht 32, 1210 Bruxelles";
   } else {
     const addr = document.createElement("div");
     addr.className = "ticket-address";
-    addr.textContent = ticket.restaurantAddress || "";
+    addr.textContent = "Chaussée d'Haecht 32, 1210 Bruxelles";
     ticketTotal.parentElement.appendChild(addr);
   }
   ticketModal.classList.remove("hidden");
@@ -1227,7 +1150,7 @@ const renderDaily = (report) => {
   if (!report) return;
   if (dailyTitle) dailyTitle.textContent = "TICKET DE LA JOURNEE";
   dailyDate.textContent = `Date : ${report.date}`;
-  if (dailyRestaurant) dailyRestaurant.textContent = restaurantName();
+  if (dailyRestaurant) dailyRestaurant.textContent = RESTAURANT_NAME;
   if (dailyVat) dailyVat.textContent = hasVatNumber(report.vatNumber) ? `TVA: ${report.vatNumber}` : "";
   dailyLines.innerHTML = "";
   const cashRow = document.createElement("div");
@@ -1246,7 +1169,7 @@ const hideDaily = () => dailyModal.classList.add("hidden");
 
 const openPaymentModal = () => {
   if (!paymentModal || !state.currentOrder) return;
-  const total = currentPayableTotal();
+  const total = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
   if (paymentCashInput) paymentCashInput.value = "0.00";
   if (paymentCardInput) paymentCardInput.value = total.toFixed(2);
   updatePaymentTotalHint();
@@ -1535,11 +1458,11 @@ const hideHistoryModal = () => {
   historyModal.classList.add("hidden");
 };
 
-const isManagerUser = () => ["RESTAURANT_OWNER", "MANAGER"].includes(state.user?.role);
+const isManagerUser = () => state.user?.role === "manager";
 
 const updateUserInterface = () => {
   if (currentUserEl) {
-    const role = isManagerUser() ? "Gestion" : state.user?.role || "Employé";
+    const role = isManagerUser() ? "Gerant" : "Serveur";
     currentUserEl.textContent = state.user ? `${state.user.name} - ${role}` : "";
   }
   managerOnlyEls.forEach((element) => element.classList.toggle("hidden", !isManagerUser()));
@@ -1558,12 +1481,12 @@ const renderStaffList = (staff) => {
     row.innerHTML = `
       <div>
         <strong>${escapeHtml(member.name)}</strong>
-        <span>${member.role === "MANAGER" ? "Gérant" : member.role}</span>
+        <span>${member.role === "manager" ? "Gerant" : "Serveur"}</span>
       </div>
       <input type="password" inputmode="numeric" minlength="4" placeholder="Nouveau PIN" />
       <div class="staff-actions">
         <button class="ghost-btn staff-pin-btn" type="button">Modifier PIN</button>
-        ${member.role === "RESTAURANT_OWNER" ? "" : '<button class="ghost-btn danger-btn staff-delete-btn" type="button">Supprimer</button>'}
+        ${member.role === "manager" ? "" : '<button class="ghost-btn danger-btn staff-delete-btn" type="button">Supprimer</button>'}
       </div>
     `;
     const pinInput = row.querySelector("input");
@@ -1642,7 +1565,7 @@ const printStaffReport = (report, date) => {
   );
   const pointages = (report.pointages || []).map((item) => `${item.qty} x ${item.name}`);
   const text = joinThermalLines(
-    restaurantName(),
+    RESTAURANT_NAME,
     `TICKET SERVEUR - ${report.staff.name}`,
     `Date: ${date}`,
     thermalSeparator(),
@@ -1770,17 +1693,10 @@ const init = async () => {
       return;
     }
     state.user = auth.user;
-    state.restaurant = auth.restaurant || await api("/api/restaurant/current");
-    const brand = document.getElementById("restaurant-name");
-    if (brand) brand.textContent = restaurantName();
-    const logo = document.getElementById("restaurant-logo");
-    if (logo && state.restaurant?.logoUrl) { logo.src = state.restaurant.logoUrl; logo.classList.remove("hidden"); }
     updateUserInterface();
     registerEvents();
     registerServiceWorker();
     state.menu = await api("/api/menu");
-    const loungeOptions = document.getElementById("lounge-options");
-    if (loungeOptions) loungeOptions.classList.toggle("hidden", !state.menu.some((category) => category.items?.some((item) => item.isShisha || item.isAdditionalShishaHead)));
     state.activeCategory = state.menu[0]?.id;
     state.paymentMethod = "card";
     renderCategories();
