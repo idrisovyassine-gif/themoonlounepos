@@ -520,25 +520,43 @@ const renderOrder = () => {
     orderItemsEl.appendChild(li);
   });
   const total = items.reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  const paid = normalizeMoney(state.currentOrder?.paidTotal);
+  if (paid > 0) {
+    const paidLine = document.createElement("li");
+    paidLine.className = "order-line";
+    paidLine.innerHTML = `<h4>Déjà payé</h4><span></span><strong>${euros(paid)}</strong>`;
+    orderItemsEl.appendChild(paidLine);
+    const remainingLine = document.createElement("li");
+    remainingLine.className = "order-line";
+    remainingLine.innerHTML = `<h4>Reste à payer</h4><span></span><strong>${euros(Math.max(0, total - paid))}</strong>`;
+    orderItemsEl.appendChild(remainingLine);
+  }
   orderTotalEl.textContent = euros(total);
+};
+
+const currentPayableTotal = () => {
+  const total = (state.currentOrder?.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  return Math.max(0, Math.round((total - normalizeMoney(state.currentOrder?.paidTotal)) * 100) / 100);
 };
 
 const updatePaymentTotalHint = () => {
   if (!paymentTotalHint || !state.currentOrder) return;
-  const total = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  const total = currentPayableTotal();
   const cash = normalizeMoney(paymentCashInput ? paymentCashInput.value : 0);
   const card = normalizeMoney(paymentCardInput ? paymentCardInput.value : 0);
   const entered = Math.round((cash + card) * 100) / 100;
   const diff = Math.round((total - entered) * 100) / 100;
   if (Math.abs(diff) < 0.01) {
-    paymentTotalHint.textContent = `Total OK: ${euros(total)}`;
+    paymentTotalHint.textContent = `Solde entièrement réglé : ${euros(total)}`;
     return;
   }
   if (diff > 0) {
-    paymentTotalHint.textContent = `Il manque ${euros(diff)} (total ${euros(total)})`;
+    paymentTotalHint.textContent = entered > 0
+      ? `Paiement partiel : ${euros(entered)} · Il restera ${euros(diff)}`
+      : `Reste à payer : ${euros(total)}`;
     return;
   }
-  paymentTotalHint.textContent = `Rendu client: ${euros(Math.abs(diff))} (total ${euros(total)})`;
+  paymentTotalHint.textContent = `Rendu client : ${euros(Math.abs(diff))} · Solde ${euros(total)}`;
 };
 
 const computePaymentMethod = (totalCash, totalCard) => {
@@ -941,7 +959,8 @@ const printReceiptTicket = () => {
     lines.length ? lines : "Aucun article",
     thermalSeparator(),
     paymentDetails,
-    thermalLine("Total TTC", euros(lastTicket.totalTtc || 0)),
+    thermalLine(lastTicket.orderTotal !== lastTicket.totalTtc ? "Paiement recu" : "Total TTC", euros(lastTicket.totalTtc || 0)),
+    lastTicket.remainingBalance > 0 ? thermalLine("Reste a payer", euros(lastTicket.remainingBalance)) : null,
     "Chaussee d'Haecht 32",
     "1210 Bruxelles"
   );
@@ -1031,12 +1050,11 @@ const markToPay = async () => {
 const confirmPayment = async () => {
   if (!state.currentOrder) return;
   try {
-    const orderTotal = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
     const totalCash = normalizeMoney(paymentCashInput ? paymentCashInput.value : 0);
     const totalCard = normalizeMoney(paymentCardInput ? paymentCardInput.value : 0);
     const entered = Math.round((totalCash + totalCard) * 100) / 100;
-    if (entered + 0.01 < orderTotal) {
-      alert(`Le total saisi (${euros(entered)}) doit etre au moins egal au total commande (${euros(orderTotal)}).`);
+    if (entered <= 0) {
+      alert("Introduisez un montant à encaisser.");
       return;
     }
     const method = computePaymentMethod(totalCash, totalCard);
@@ -1052,11 +1070,17 @@ const confirmPayment = async () => {
       })
     });
     showTicket(ticket);
-    localStorage.removeItem(`order-${state.currentTable.id}`);
-    state.currentOrder = null;
-    state.currentTable = null;
-    orderPanel.classList.add("hidden");
-    tablesPanel.classList.remove("hidden");
+    if (ticket.partial) {
+      state.currentOrder = ticket.order;
+      tableStatusLabel.textContent = "Statut : A payer (paiement partiel)";
+      renderOrder();
+    } else {
+      localStorage.removeItem(`order-${state.currentTable.id}`);
+      state.currentOrder = null;
+      state.currentTable = null;
+      orderPanel.classList.add("hidden");
+      tablesPanel.classList.remove("hidden");
+    }
     await refreshTables();
     hidePaymentModal();
   } catch (err) {
@@ -1076,6 +1100,8 @@ const showTicket = (ticket) => {
   const methodLabel = paymentMethodLabel(ticket.paymentMethod);
   const serverLabel = ticket.paidBy?.name ? `  -  Serveur: ${ticket.paidBy.name}` : "";
   ticketMeta.textContent = `Ticket N ${formatTicketNumber(ticket.ticketNumber)}  -  Table ${ticket.table}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}${serverLabel}`;
+  const ticketTotalLabel = ticketTotal.parentElement?.querySelector("span");
+  if (ticketTotalLabel) ticketTotalLabel.textContent = ticket.orderTotal !== ticket.totalTtc ? "Paiement reçu" : "Total TTC";
   ticketLines.innerHTML = "";
   ticket.items.forEach((line) => {
     const row = document.createElement("div");
@@ -1083,6 +1109,12 @@ const showTicket = (ticket) => {
     row.innerHTML = `<span>${line.qty} x ${line.name}</span><strong>${euros(line.price * line.qty)}</strong>`;
     ticketLines.appendChild(row);
   });
+  if (!ticket.items.length) {
+    const paymentRow = document.createElement("div");
+    paymentRow.className = "ticket-row";
+    paymentRow.innerHTML = `<span>Paiement commande</span><strong>${euros(ticket.totalTtc)}</strong>`;
+    ticketLines.appendChild(paymentRow);
+  }
   if (typeof ticket.totalCash === "number" || typeof ticket.totalCard === "number") {
     const totalCash =
       typeof ticket.paidCash === "number"
@@ -1110,6 +1142,12 @@ const showTicket = (ticket) => {
       changeRow.innerHTML = `<span>Rendu</span><strong>${euros(ticket.changeDue)}</strong>`;
       ticketLines.appendChild(changeRow);
     }
+  }
+  if (typeof ticket.remainingBalance === "number" && ticket.remainingBalance > 0) {
+    const remainingRow = document.createElement("div");
+    remainingRow.className = "ticket-row";
+    remainingRow.innerHTML = `<span>Reste à payer sur la table</span><strong>${euros(ticket.remainingBalance)}</strong>`;
+    ticketLines.appendChild(remainingRow);
   }
   ticketTotal.textContent = euros(ticket.totalTtc);
   const existingAddress = ticketModal.querySelector(".ticket-address");
@@ -1169,7 +1207,7 @@ const hideDaily = () => dailyModal.classList.add("hidden");
 
 const openPaymentModal = () => {
   if (!paymentModal || !state.currentOrder) return;
-  const total = (state.currentOrder.items || []).reduce((acc, curr) => acc + curr.price * curr.qty, 0);
+  const total = currentPayableTotal();
   if (paymentCashInput) paymentCashInput.value = "0.00";
   if (paymentCardInput) paymentCardInput.value = total.toFixed(2);
   updatePaymentTotalHint();

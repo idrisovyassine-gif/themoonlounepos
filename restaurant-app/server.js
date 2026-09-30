@@ -505,6 +505,9 @@ const createPaymentEntry = (ticket) => ({
   orderId: ticket.orderId,
   items: ticket.items || [],
   totalTtc: ticket.totalTtc,
+  orderTotal: ticket.orderTotal,
+  remainingBalance: ticket.remainingBalance,
+  partial: Boolean(ticket.partial),
   totalCash: ticket.totalCash,
   totalCard: ticket.totalCard,
   paidCash: ticket.paidCash,
@@ -525,6 +528,7 @@ const createOrder = (tableId, user) => {
     id,
     tableId,
     items: [],
+    paidTotal: 0,
     status: "open",
     sentToKitchen: false,
     kitchenSentItems: [],
@@ -603,11 +607,14 @@ const buildTicketPdfBuffer = (ticket) =>
     });
 
     doc.moveDown(0.6);
-    doc.font("Helvetica-Bold").fontSize(11).text(`Total TTC: ${formatMoney(ticket.totalTtc)} EUR`);
+    doc.font("Helvetica-Bold").fontSize(11).text(`${ticket.orderTotal !== ticket.totalTtc ? "Paiement recu" : "Total TTC"}: ${formatMoney(ticket.totalTtc)} EUR`);
     doc.font("Helvetica").fontSize(10).text(`Cash: ${formatMoney(ticket.paidCash ?? ticket.totalCash ?? 0)} EUR`);
     doc.text(`Carte: ${formatMoney(ticket.paidCard ?? ticket.totalCard ?? 0)} EUR`);
     if ((ticket.changeDue || 0) > 0) {
       doc.text(`Rendu: ${formatMoney(ticket.changeDue)} EUR`);
+    }
+    if ((ticket.remainingBalance || 0) > 0) {
+      doc.text(`Reste a payer sur la table: ${formatMoney(ticket.remainingBalance)} EUR`);
     }
 
     doc.moveDown(0.8);
@@ -927,6 +934,10 @@ app.put("/api/orders/:id", (req, res) => {
   const { items = [] } = req.body || {};
   const previousItems = snapshotOrderItems(order.items);
   const nextItems = Array.isArray(items) ? items : order.items;
+  const nextTotal = computeTotal(nextItems);
+  if (nextTotal + 0.01 < normalizeMoney(order.paidTotal)) {
+    return res.status(400).json({ error: "Le total ne peut pas être inférieur au montant déjà payé" });
+  }
   order.items = nextItems;
   const user = getAuthenticatedUser(req);
   recordItemChanges(order, previousItems, nextItems, user);
@@ -988,8 +999,6 @@ app.post("/api/orders/:id/settle", async (req, res) => {
     return res.status(404).json({ error: "Commande introuvable" });
   }
   const table = findTable(order.tableId);
-  const paymentMethod = (req.body && req.body.paymentMethod) || "card";
-  const paymentSplit = req.body && req.body.paymentSplit;
   const paymentAmounts = req.body && req.body.paymentAmounts;
   const dateOverride = req.body && req.body.dateOverride;
   const parsedDate = dateOverride ? new Date(dateOverride) : null;
@@ -997,23 +1006,29 @@ app.post("/api/orders/:id/settle", async (req, res) => {
     parsedDate && !Number.isNaN(parsedDate.getTime())
       ? parsedDate.toISOString()
       : new Date().toISOString();
+  const orderTotal = computeTotal(order.items);
+  const previouslyPaid = normalizeMoney(order.paidTotal);
+  const remainingBeforePayment = Math.max(0, Math.round((orderTotal - previouslyPaid) * 100) / 100);
+  const paidCash = normalizeMoney(paymentAmounts?.cash);
+  const paidCard = normalizeMoney(paymentAmounts?.card);
+  const tenderedTotal = Math.round((paidCash + paidCard) * 100) / 100;
+  if (tenderedTotal <= 0) {
+    return res.status(400).json({ error: "Introduisez un montant à encaisser" });
+  }
+  if (remainingBeforePayment <= 0) {
+    return res.status(409).json({ error: "Commande déjà payée" });
+  }
+  const totalTtc = Math.min(tenderedTotal, remainingBeforePayment);
+  const totalCard = Math.min(paidCard, totalTtc);
+  const totalCash = Math.max(0, Math.round((totalTtc - totalCard) * 100) / 100);
+  const changeDue = Math.max(0, Math.round((tenderedTotal - totalTtc) * 100) / 100);
+  const paymentMethod = computePaymentMethod(totalCash, totalCard);
+  const newPaidTotal = Math.round((previouslyPaid + totalTtc) * 100) / 100;
+  const remainingBalance = Math.max(0, Math.round((orderTotal - newPaidTotal) * 100) / 100);
+  const partial = remainingBalance > 0.009;
   const ticketDateKey = getDateKey(ticketDate) || new Date().toISOString().slice(0, 10);
   const ticketNumber = nextTicketNumberForDate(ticketDateKey);
-  const { totalCash, totalCard, paidCash, paidCard, changeDue } = computePaymentBreakdown(
-    order.items,
-    paymentMethod,
-    paymentSplit,
-    paymentAmounts
-  );
-  const totalTtc = computeTotal(order.items);
-  const paidTotal = Math.round((paidCash + paidCard) * 100) / 100;
-  if (paidTotal + 0.01 < totalTtc) {
-    return res.status(400).json({
-      error: "Montant de paiement invalide",
-      expectedTotal: totalTtc,
-      paidTotal
-    });
-  }
+  const paymentEvent = makeAuditEvent(getAuthenticatedUser(req), "paiement", { total: totalTtc, remainingBalance });
   const ticket = {
     restaurant: RESTAURANT_NAME,
     vatNumber: COMPANY_VAT_NUMBER || null,
@@ -1021,8 +1036,12 @@ app.post("/api/orders/:id/settle", async (req, res) => {
     ticketDateKey,
     table: table.id,
     orderId: order.id,
-    items: order.items,
+    items: partial ? [] : order.items,
     totalTtc,
+    orderTotal,
+    paidTotal: newPaidTotal,
+    remainingBalance,
+    partial,
     paymentMethod,
     totalCash,
     totalCard,
@@ -1031,25 +1050,29 @@ app.post("/api/orders/:id/settle", async (req, res) => {
     changeDue,
     openedBy: order.openedBy || null,
     paidBy: publicStaff(getAuthenticatedUser(req)),
-    activity: [
-      ...(order.activity || []),
-      makeAuditEvent(getAuthenticatedUser(req), "paiement", { total: totalTtc })
-    ],
+    activity: partial ? [paymentEvent] : [...(order.activity || []), paymentEvent],
     date: ticketDate
   };
   settledTickets.push(ticket);
   paymentHistory.push(createPaymentEntry(ticket));
-  table.status = "free";
-  table.orderId = null;
-  order.status = "settled";
-  orders.delete(order.id);
+  order.paidTotal = newPaidTotal;
+  order.activity = [...(order.activity || []), paymentEvent];
+  if (partial) {
+    table.status = "to_pay";
+    order.status = "to_pay";
+  } else {
+    table.status = "free";
+    table.orderId = null;
+    order.status = "settled";
+    orders.delete(order.id);
+  }
   savePosState();
   try {
     await sendTelegramTicket(ticket);
   } catch (error) {
     console.error("Impossible d'envoyer le ticket vers Telegram", error);
   }
-  res.json(ticket);
+  res.json({ ...ticket, order: partial ? order : null });
 });
 
 app.get("/api/reports/daily", requireManager, (_req, res) => {
